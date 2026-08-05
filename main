@@ -11,6 +11,11 @@ local GRAVITY = workspace.Gravity or 196.2
 local Connections = {}
 local Pressed = false
 
+-- Target lock to prevent flicking between targets
+local LastTarget = nil
+local LastTargetTime = 0
+local TARGET_LOCK_TIME = 0.15  -- Stay on same target for at least 150ms
+
 local Aimflow = {
     Settings = {
         Smoothness = 20,
@@ -43,6 +48,13 @@ local Aimflow = {
 }
 
 -- ============================================================
+-- MOUSE MOVEMENT SAFETY CONSTANTS
+-- ============================================================
+local MAX_STEP_PER_FRAME = 25     -- Absolute max pixels to move in one frame
+local SNAP_THRESHOLD = 400        -- If delta exceeds this, snap instantly
+local SCREEN_EDGE_MARGIN = 50     -- Stay this many pixels from screen edge
+
+-- ============================================================
 -- UTILITY
 -- ============================================================
 
@@ -64,17 +76,47 @@ local function getPing()
 end
 
 -- ============================================================
--- SIMPLE PREDICTION MATH
+-- CLAMP TARGET TO SCREEN (prevent off-screen aiming)
+-- ============================================================
+
+local function clampToScreen(worldPosition)
+    local screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(worldPosition)
+    local viewport = CurrentCamera.ViewportSize
+
+    if not onScreen then
+        -- Clamp to nearest screen edge
+        local clampedX = math.clamp(screenPoint.X, SCREEN_EDGE_MARGIN, viewport.X - SCREEN_EDGE_MARGIN)
+        local clampedY = math.clamp(screenPoint.Y, SCREEN_EDGE_MARGIN, viewport.Y - SCREEN_EDGE_MARGIN)
+
+        -- Convert back to world position at the clamped screen point
+        local ray = CurrentCamera:ViewportPointToRay(clampedX, clampedY)
+        local depth = (worldPosition - CurrentCamera.CFrame.Position).Magnitude
+        return ray.Origin + ray.Direction * depth, true
+    end
+
+    -- Clamp even on-screen positions away from the absolute edge
+    local clampedX = math.clamp(screenPoint.X, SCREEN_EDGE_MARGIN, viewport.X - SCREEN_EDGE_MARGIN)
+    local clampedY = math.clamp(screenPoint.Y, SCREEN_EDGE_MARGIN, viewport.Y - SCREEN_EDGE_MARGIN)
+
+    if clampedX ~= screenPoint.X or clampedY ~= screenPoint.Y then
+        local ray = CurrentCamera:ViewportPointToRay(clampedX, clampedY)
+        local depth = (worldPosition - CurrentCamera.CFrame.Position).Magnitude
+        return ray.Origin + ray.Direction * depth, true
+    end
+
+    return worldPosition, onScreen
+end
+
+-- ============================================================
+-- SIMPLE PREDICTION
 -- ============================================================
 
 local function getPredictedPosition(rootPart, shooterPos, settings)
-    -- Get velocity directly from physics
     local velocity = Vector3.zero
     if rootPart:IsA("BasePart") then
         velocity = rootPart.AssemblyLinearVelocity or rootPart.Velocity or Vector3.zero
     end
 
-    -- Fallback: try Humanoid MoveDirection
     if velocity.Magnitude < 0.5 then
         local humanoid = rootPart.Parent and rootPart.Parent:FindFirstChild("Humanoid")
         if humanoid and humanoid.MoveDirection.Magnitude > 0 then
@@ -82,7 +124,6 @@ local function getPredictedPosition(rootPart, shooterPos, settings)
         end
     end
 
-    -- If barely moving, don't predict
     if velocity.Magnitude < 1 then
         return rootPart.Position
     end
@@ -90,8 +131,6 @@ local function getPredictedPosition(rootPart, shooterPos, settings)
     local currentPos = rootPart.Position
     local distance = (currentPos - shooterPos).Magnitude
     local ping = settings.PingCompensation and getPing() or 0
-
-    -- Total time until bullet arrives
     local totalDelay = settings.TriggerDelay or 0
 
     if (settings.ProjectileSpeed or 0) > 0 then
@@ -100,16 +139,13 @@ local function getPredictedPosition(rootPart, shooterPos, settings)
         totalDelay = totalDelay + ping + 0.03
     end
 
-    -- Predict: current position + velocity * time
     local predicted = currentPos + velocity * totalDelay
 
-    -- Gravity drop (projectile only)
     if settings.UseGravity and (settings.ProjectileSpeed or 0) > 0 then
         local flightTime = totalDelay - (settings.TriggerDelay or 0)
         predicted = predicted - Vector3.new(0, 0.5 * GRAVITY * flightTime * flightTime, 0)
     end
 
-    -- Clamp
     local offset = (predicted - currentPos).Magnitude
     local maxPred = settings.MaxPrediction or 50
     if offset > maxPred then
@@ -129,17 +165,20 @@ function Aimflow:SetKeybind(keybind)
         Connections[i] = nil
     end
     Pressed = false
+    LastTarget = nil
 
     table.insert(Connections, UserInputService.InputBegan:Connect(function(input)
         if (input.UserInputType ~= keybind and input.KeyCode ~= keybind) or not Aimflow.Settings.Enabled then
             return
         end
         Pressed = true
+        LastTarget = nil  -- Reset lock on fresh press
     end))
 
     table.insert(Connections, UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType ~= keybind and input.KeyCode ~= keybind then return end
         Pressed = false
+        LastTarget = nil
     end))
 end
 
@@ -152,9 +191,14 @@ function getClosest()
     local closestCharacter = nil
     local closestTargetPos = nil
     local closestDistance = math.huge
+    local closestWasLocked = false
 
     local predSettings = Aimflow.Settings.Prediction
     local shooterPos = CurrentCamera.CFrame.Position
+    local now = os.clock()
+
+    -- Check if we should maintain target lock
+    local maintainLock = LastTarget and (now - LastTargetTime) < TARGET_LOCK_TIME
 
     for _, plr in Players:GetPlayers() do
         if plr == Player then continue end
@@ -166,7 +210,7 @@ function getClosest()
         local rootPart = character:FindFirstChild(Aimflow.Settings.Bodypart)
         if not rootPart then continue end
 
-        -- Get the position to aim at
+        -- Get aim position
         local aimPosition
         if predSettings.Enabled then
             aimPosition = getPredictedPosition(rootPart, shooterPos, predSettings)
@@ -174,14 +218,18 @@ function getClosest()
             aimPosition = rootPart.Position
         end
 
+        -- Clamp to screen bounds
+        aimPosition, _ = clampToScreen(aimPosition)
+
         -- Convert to screen
         local screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(aimPosition)
 
-        -- Fallback: if prediction pushed off-screen, use current position
         if not onScreen and predSettings.Enabled then
-            screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(rootPart.Position)
+            -- Fallback to current position
+            local clampedCurrent, currentOnScreen = clampToScreen(rootPart.Position)
+            screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(clampedCurrent)
             if onScreen then
-                aimPosition = rootPart.Position
+                aimPosition = clampedCurrent
             end
         end
 
@@ -192,14 +240,140 @@ function getClosest()
 
         if distance > Aimflow.Settings.Radius then continue end
 
-        if distance < closestDistance then
-            closestDistance = distance
+        -- If maintaining lock, prefer the locked target even if slightly farther
+        local isLockedTarget = (character == LastTarget)
+        local effectiveDistance = distance
+        if maintainLock and isLockedTarget then
+            effectiveDistance = distance * 0.7  -- Bias toward locked target
+        end
+
+        if effectiveDistance < closestDistance then
+            closestDistance = effectiveDistance
             closestCharacter = character
             closestTargetPos = aimPosition
+            closestWasLocked = isLockedTarget
         end
     end
 
+    -- Update target lock
+    if closestCharacter and closestCharacter ~= LastTarget then
+        if not maintainLock or closestWasLocked then
+            LastTarget = closestCharacter
+            LastTargetTime = now
+        end
+    elseif closestCharacter == LastTarget then
+        LastTargetTime = now  -- Refresh lock
+    end
+
     return closestCharacter, closestTargetPos
+end
+
+-- ============================================================
+-- SAFE MOUSE MOVEMENT
+-- Prevents the mouse from flying off-screen
+-- ============================================================
+
+local function safeMouseMove(deltaX, deltaY, distance, deltaTime)
+    -- SAFETY 1: If delta is absurdly large (half the screen), snap instantly
+    local viewport = CurrentCamera.ViewportSize
+    local maxScreenDim = math.max(viewport.X, viewport.Y)
+    
+    if distance > SNAP_THRESHOLD then
+        -- Something went wrong—snap to avoid wild movement
+        if mousemoverel then
+            mousemoverel(deltaX, deltaY)
+        end
+        return
+    end
+
+    -- SAFETY 2: Non-linear scaling for large deltas
+    -- Small deltas: proportional movement
+    -- Large deltas: logarithmic dampening to prevent flying
+    local smoothness = math.clamp(Aimflow.Settings.Smoothness, 0, 100)
+    local responseSpeed
+
+    if smoothness <= 0 then
+        -- Instant snap, but still cap it
+        local maxStep = MAX_STEP_PER_FRAME * 4  -- Allow faster snapping when smoothness=0
+        if distance > maxStep then
+            local ratio = maxStep / distance
+            deltaX = deltaX * ratio
+            deltaY = deltaY * ratio
+        end
+        if mousemoverel then
+            mousemoverel(deltaX, deltaY)
+        end
+        return
+    end
+
+    -- Calculate base response speed
+    responseSpeed = math.exp(-smoothness / 25) * 0.8 + 0.02
+
+    -- Apply response curve
+    local stepX = deltaX * responseSpeed
+    local stepY = deltaY * responseSpeed
+
+    -- SAFETY 3: Hard cap on maximum step per frame
+    local stepMagnitude = math.sqrt(stepX * stepX + stepY * stepY)
+    if stepMagnitude > MAX_STEP_PER_FRAME then
+        local ratio = MAX_STEP_PER_FRAME / stepMagnitude
+        stepX = stepX * ratio
+        stepY = stepY * ratio
+    end
+
+    -- SAFETY 4: Never overshoot the target
+    if math.abs(stepX) > math.abs(deltaX) then stepX = deltaX end
+    if math.abs(stepY) > math.abs(deltaY) then stepY = deltaY end
+
+    -- SAFETY 5: Minimum step to prevent stall (but only if we're not at the cap)
+    local minStep = 0.5
+    local finalMagnitude = math.sqrt(stepX * stepX + stepY * stepY)
+    if finalMagnitude < minStep and distance > minStep then
+        local ratio = minStep / finalMagnitude
+        stepX = stepX * ratio
+        stepY = stepY * ratio
+        -- Re-check cap after min step boost
+        local boostedMag = math.sqrt(stepX * stepX + stepY * stepY)
+        if boostedMag > MAX_STEP_PER_FRAME then
+            local ratio2 = MAX_STEP_PER_FRAME / boostedMag
+            stepX = stepX * ratio2
+            stepY = stepY * ratio2
+        end
+    end
+
+    -- SAFETY 6: Frame-rate independence (normalize to 60fps, cap at 2x)
+    local dtScale = math.min(deltaTime * 60, 2)
+    stepX = stepX * dtScale
+    stepY = stepY * dtScale
+
+    -- SAFETY 7: Final hard cap after all adjustments
+    local finalMagnitude2 = math.sqrt(stepX * stepX + stepY * stepY)
+    if finalMagnitude2 > MAX_STEP_PER_FRAME * 2 then
+        local ratio = (MAX_STEP_PER_FRAME * 2) / finalMagnitude2
+        stepX = stepX * ratio
+        stepY = stepY * ratio
+    end
+
+    -- SAFETY 8: Ensure we're not moving the mouse off-screen
+    local currentMouse = UserInputService:GetMouseLocation()
+    local newX = currentMouse.X + stepX
+    local newY = currentMouse.Y + stepY
+
+    if newX < SCREEN_EDGE_MARGIN then
+        stepX = SCREEN_EDGE_MARGIN - currentMouse.X
+    elseif newX > viewport.X - SCREEN_EDGE_MARGIN then
+        stepX = (viewport.X - SCREEN_EDGE_MARGIN) - currentMouse.X
+    end
+
+    if newY < SCREEN_EDGE_MARGIN then
+        stepY = SCREEN_EDGE_MARGIN - currentMouse.Y
+    elseif newY > viewport.Y - SCREEN_EDGE_MARGIN then
+        stepY = (viewport.Y - SCREEN_EDGE_MARGIN) - currentMouse.Y
+    end
+
+    if mousemoverel then
+        mousemoverel(stepX, stepY)
+    end
 end
 
 -- ============================================================
@@ -212,7 +386,6 @@ RunService.RenderStepped:Connect(function(deltaTime)
     local closestCharacter, targetPos = getClosest()
     if not closestCharacter then return end
 
-    -- Fallback: if no target position (shouldn't happen, but safety)
     if not targetPos then
         local bodyPart = closestCharacter:FindFirstChild(Aimflow.Settings.Bodypart)
         if not bodyPart then return end
@@ -220,9 +393,6 @@ RunService.RenderStepped:Connect(function(deltaTime)
     end
 
     if Aimflow.Settings.UseMouseMove then
-        -- ============================================================
-        -- PROPORTIONAL CONTROLLER MOUSE MOVEMENT
-        -- ============================================================
         local screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(targetPos)
         if not onScreen then return end
 
@@ -233,37 +403,8 @@ RunService.RenderStepped:Connect(function(deltaTime)
 
         if distance < 0.5 then return end
 
-        local smoothness = math.clamp(Aimflow.Settings.Smoothness, 0, 100)
-        local responseSpeed
-        if smoothness <= 0 then
-            responseSpeed = 1.0
-        else
-            responseSpeed = math.exp(-smoothness / 25) * 0.8 + 0.02
-        end
-
-        local stepX = deltaX * responseSpeed
-        local stepY = deltaY * responseSpeed
-
-        local stepMagnitude = math.sqrt(stepX * stepX + stepY * stepY)
-        local minStep = 0.5
-        if stepMagnitude < minStep and distance > minStep then
-            local ratio = minStep / stepMagnitude
-            stepX = stepX * ratio
-            stepY = stepY * ratio
-        end
-
-        if math.abs(stepX) > math.abs(deltaX) then stepX = deltaX end
-        if math.abs(stepY) > math.abs(deltaY) then stepY = deltaY end
-
-        local dtScale = math.min(deltaTime * 60, 2)
-        stepX = stepX * dtScale
-        stepY = stepY * dtScale
-
-        if mousemoverel then
-            mousemoverel(stepX, stepY)
-        end
+        safeMouseMove(deltaX, deltaY, distance, deltaTime)
     else
-        -- Camera CFrame aim
         if Aimflow.Settings.Smoothness > 0 then
             local scaleFactor = math.max(1, Aimflow.Settings.Smoothness / 10)
             local targetRotation = CFrame.lookAt(CurrentCamera.CFrame.Position, targetPos)
