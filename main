@@ -11,21 +11,9 @@ local GRAVITY = workspace.Gravity or 196.2
 local Connections = {}
 local Pressed = false
 
--- ============================================================
--- PREDICTION STATE (smoothed to prevent jitter)
--- ============================================================
-local SmoothedVelocities = {}       -- [userId] = Vector3 (exponential moving average)
-local PreviousPositions = {}        -- [userId] = Vector3 (for velocity calc)
-local PositionTimestamps = {}       -- [userId] = number (os.clock)
-local SmoothedPredictions = {}      -- [userId] = Vector3 (lerped prediction position)
-local VELOCITY_SMOOTH_ALPHA = 0.3   -- How fast velocity adapts (0-1, lower = smoother)
-local PREDICTION_LERP_SPEED = 8     -- How fast prediction position converges
-local VELOCITY_DEADZONE = 1.5       -- Ignore movement below this speed (studs/sec)
-local MAX_VELOCITY = 80             -- Clamp unrealistic velocities (teleports, lag)
-
 local Aimflow = {
     Settings = {
-        Smoothness = 20,            -- 0 = instant, 1-100 = smoother
+        Smoothness = 20,
         Radius = 300,
         ShowCircle = true,
         CircleColor = Color3.fromRGB(255, 255, 255),
@@ -33,16 +21,13 @@ local Aimflow = {
         Bodypart = "HumanoidRootPart",
         UseMouseMove = true,
 
-        -- ============================================================
-        -- PREDICTION SETTINGS
-        -- ============================================================
         Prediction = {
-            Enabled = false,            -- Master toggle
-            TriggerDelay = 0.5,         -- Seconds between click and shot
-            ProjectileSpeed = 0,        -- 0 = hitscan, >0 = projectile units/sec
-            PingCompensation = true,    -- Include ping for hitscan
-            UseGravity = false,         -- Bullet drop for projectiles
-            MaxPrediction = 50,         -- Maximum prediction lead in studs
+            Enabled = false,
+            TriggerDelay = 0.5,
+            ProjectileSpeed = 0,
+            PingCompensation = true,
+            UseGravity = false,
+            MaxPrediction = 50,
         },
     },
 
@@ -79,98 +64,63 @@ local function getPing()
 end
 
 -- ============================================================
--- STABILIZED VELOCITY TRACKING
--- Solves the teleportation problem by:
--- 1. Smoothing velocity with exponential moving average
--- 2. Applying a deadzone so tiny movements don't trigger prediction
--- 3. Clamping unrealistic velocities from lag/teleports
+-- SIMPLE PREDICTION MATH
 -- ============================================================
 
-local function getSmoothedVelocity(plr, rootPart)
-    local userId = plr.UserId
+local function getPredictedPosition(rootPart, shooterPos, settings)
+    -- Get velocity directly from physics
+    local velocity = Vector3.zero
+    if rootPart:IsA("BasePart") then
+        velocity = rootPart.AssemblyLinearVelocity or rootPart.Velocity or Vector3.zero
+    end
+
+    -- Fallback: try Humanoid MoveDirection
+    if velocity.Magnitude < 0.5 then
+        local humanoid = rootPart.Parent and rootPart.Parent:FindFirstChild("Humanoid")
+        if humanoid and humanoid.MoveDirection.Magnitude > 0 then
+            velocity = humanoid.MoveDirection * humanoid.WalkSpeed
+        end
+    end
+
+    -- If barely moving, don't predict
+    if velocity.Magnitude < 1 then
+        return rootPart.Position
+    end
+
     local currentPos = rootPart.Position
-    local now = os.clock()
-
-    -- Calculate raw velocity from position delta
-    local rawVelocity = Vector3.zero
-    local prevPos = PreviousPositions[userId]
-    local prevTime = PositionTimestamps[userId]
-
-    if prevPos and prevTime then
-        local dt = now - prevTime
-        if dt > 0.001 and dt < 0.5 then  -- Ignore huge time gaps (respawn/teleport)
-            rawVelocity = (currentPos - prevPos) / dt
-
-            -- Clamp to max realistic velocity
-            if rawVelocity.Magnitude > MAX_VELOCITY then
-                rawVelocity = rawVelocity.Unit * MAX_VELOCITY
-            end
-        end
-    end
-
-    -- Update position history
-    PreviousPositions[userId] = currentPos
-    PositionTimestamps[userId] = now
-
-    -- Exponential moving average for smooth velocity
-    local prevSmoothed = SmoothedVelocities[userId]
-    if prevSmoothed then
-        local alpha = VELOCITY_SMOOTH_ALPHA
-        local newSmoothed = prevSmoothed + (rawVelocity - prevSmoothed) * alpha
-        SmoothedVelocities[userId] = newSmoothed
-        return newSmoothed
-    else
-        SmoothedVelocities[userId] = rawVelocity
-        return rawVelocity
-    end
-end
-
--- ============================================================
--- PREDICTED POSITION CALCULATION
--- ============================================================
-
-local function calculatePredictedPosition(currentPos, velocity, shooterPos, settings)
+    local distance = (currentPos - shooterPos).Magnitude
     local ping = settings.PingCompensation and getPing() or 0
-    local triggerDelay = settings.TriggerDelay or 0
-    local projectileSpeed = settings.ProjectileSpeed or 0
 
-    -- Build total delay
-    local totalDelay = triggerDelay
-    if projectileSpeed > 0 then
-        local distance = (currentPos - shooterPos).Magnitude
-        totalDelay = totalDelay + (distance / projectileSpeed)
+    -- Total time until bullet arrives
+    local totalDelay = settings.TriggerDelay or 0
 
-        -- Iterative refinement
-        for _ = 1, 3 do
-            local rough = currentPos + velocity * totalDelay
-            local newDist = (rough - shooterPos).Magnitude
-            totalDelay = triggerDelay + (newDist / projectileSpeed)
-        end
+    if (settings.ProjectileSpeed or 0) > 0 then
+        totalDelay = totalDelay + (distance / settings.ProjectileSpeed)
     else
         totalDelay = totalDelay + ping + 0.03
     end
 
-    -- Predict future position
+    -- Predict: current position + velocity * time
     local predicted = currentPos + velocity * totalDelay
 
-    -- Gravity compensation (projectile arc, NOT during trigger delay)
-    if settings.UseGravity and projectileSpeed > 0 then
-        local flightTime = totalDelay - triggerDelay
+    -- Gravity drop (projectile only)
+    if settings.UseGravity and (settings.ProjectileSpeed or 0) > 0 then
+        local flightTime = totalDelay - (settings.TriggerDelay or 0)
         predicted = predicted - Vector3.new(0, 0.5 * GRAVITY * flightTime * flightTime, 0)
     end
 
-    -- Clamp prediction distance
+    -- Clamp
     local offset = (predicted - currentPos).Magnitude
     local maxPred = settings.MaxPrediction or 50
     if offset > maxPred then
         predicted = currentPos + (predicted - currentPos).Unit * maxPred
     end
 
-    return predicted, totalDelay
+    return predicted
 end
 
 -- ============================================================
--- KEYBIND (unchanged)
+-- KEYBIND
 -- ============================================================
 
 function Aimflow:SetKeybind(keybind)
@@ -185,11 +135,6 @@ function Aimflow:SetKeybind(keybind)
             return
         end
         Pressed = true
-
-        -- Clear prediction state on fresh press
-        SmoothedVelocities = {}
-        SmoothedPredictions = {}
-        PreviousPositions = {}
     end))
 
     table.insert(Connections, UserInputService.InputEnded:Connect(function(input)
@@ -199,20 +144,17 @@ function Aimflow:SetKeybind(keybind)
 end
 
 -- ============================================================
--- TARGET SELECTION (with stabilized prediction)
+-- TARGET SELECTION
 -- ============================================================
 
 function getClosest()
     local mouseLocation = getActiveMouseLocation()
-    local closestPlayer = nil
     local closestCharacter = nil
-    local closestTargetPos = nil     -- The actual position to aim at
+    local closestTargetPos = nil
     local closestDistance = math.huge
 
-    local settings = Aimflow.Settings.Prediction
-    local usePrediction = settings.Enabled
+    local predSettings = Aimflow.Settings.Prediction
     local shooterPos = CurrentCamera.CFrame.Position
-    local now = os.clock()
 
     for _, plr in Players:GetPlayers() do
         if plr == Player then continue end
@@ -224,48 +166,23 @@ function getClosest()
         local rootPart = character:FindFirstChild(Aimflow.Settings.Bodypart)
         if not rootPart then continue end
 
-        local currentPos = rootPart.Position
-        local aimPosition = currentPos  -- Default: aim at current position
-
-        -- ============================================================
-        -- STABILIZED PREDICTION
-        -- ============================================================
-        if usePrediction then
-            local velocity = getSmoothedVelocity(plr, rootPart)
-            local speed = velocity.Magnitude
-
-            -- Only predict if target is actually moving
-            if speed > VELOCITY_DEADZONE then
-                local predicted, _ = calculatePredictedPosition(
-                    currentPos, velocity, shooterPos, settings
-                )
-
-                -- Lerp the prediction display position for smooth transitions
-                -- This prevents the "teleporting" effect when velocity changes
-                local prevPrediction = SmoothedPredictions[plr.UserId]
-                if prevPrediction then
-                    local lerpFactor = math.min(PREDICTION_LERP_SPEED * 
-                        (now - (PositionTimestamps[plr.UserId] or now)), 1)
-                    predicted = prevPrediction + (predicted - prevPrediction) * lerpFactor
-                end
-                SmoothedPredictions[plr.UserId] = predicted
-
-                aimPosition = predicted
-            else
-                -- Target is basically still — reset prediction smoothing
-                SmoothedPredictions[plr.UserId] = nil
-            end
+        -- Get the position to aim at
+        local aimPosition
+        if predSettings.Enabled then
+            aimPosition = getPredictedPosition(rootPart, shooterPos, predSettings)
+        else
+            aimPosition = rootPart.Position
         end
 
-        -- ============================================================
-        -- SCREEN CONVERSION
-        -- ============================================================
+        -- Convert to screen
         local screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(aimPosition)
 
         -- Fallback: if prediction pushed off-screen, use current position
-        if not onScreen and usePrediction then
-            screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(currentPos)
-            aimPosition = currentPos
+        if not onScreen and predSettings.Enabled then
+            screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(rootPart.Position)
+            if onScreen then
+                aimPosition = rootPart.Position
+            end
         end
 
         if not onScreen then continue end
@@ -277,13 +194,12 @@ function getClosest()
 
         if distance < closestDistance then
             closestDistance = distance
-            closestPlayer = plr
             closestCharacter = character
             closestTargetPos = aimPosition
         end
     end
 
-    return closestCharacter, closestPlayer, closestTargetPos
+    return closestCharacter, closestTargetPos
 end
 
 -- ============================================================
@@ -293,22 +209,21 @@ end
 RunService.RenderStepped:Connect(function(deltaTime)
     if not Pressed or not Aimflow.Settings.Enabled then return end
 
-    local closestCharacter, _, predictedPos = getClosest()
+    local closestCharacter, targetPos = getClosest()
     if not closestCharacter then return end
 
-    -- Use predicted position if available, otherwise use body part directly
-    local targetPosition = predictedPos
-    if not targetPosition then
+    -- Fallback: if no target position (shouldn't happen, but safety)
+    if not targetPos then
         local bodyPart = closestCharacter:FindFirstChild(Aimflow.Settings.Bodypart)
         if not bodyPart then return end
-        targetPosition = bodyPart.Position
+        targetPos = bodyPart.Position
     end
 
     if Aimflow.Settings.UseMouseMove then
         -- ============================================================
-        -- PROPORTIONAL CONTROLLER (fixed smoothness)
+        -- PROPORTIONAL CONTROLLER MOUSE MOVEMENT
         -- ============================================================
-        local screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(targetPosition)
+        local screenPoint, onScreen = CurrentCamera:WorldToViewportPoint(targetPos)
         if not onScreen then return end
 
         local mousePos = UserInputService:GetMouseLocation()
@@ -316,23 +231,19 @@ RunService.RenderStepped:Connect(function(deltaTime)
         local deltaY = screenPoint.Y - mousePos.Y
         local distance = math.sqrt(deltaX * deltaX + deltaY * deltaY)
 
-        if distance < 0.5 then return end  -- Already on target
+        if distance < 0.5 then return end
 
-        -- Convert smoothness setting to response speed
         local smoothness = math.clamp(Aimflow.Settings.Smoothness, 0, 100)
         local responseSpeed
         if smoothness <= 0 then
             responseSpeed = 1.0
         else
-            -- Exponential curve: smoothness=1 → ~75%, smoothness=20 → ~30%, smoothness=100 → ~2%
             responseSpeed = math.exp(-smoothness / 25) * 0.8 + 0.02
         end
 
-        -- Calculate step as percentage of remaining distance
         local stepX = deltaX * responseSpeed
         local stepY = deltaY * responseSpeed
 
-        -- Minimum step to prevent aim from stalling near target
         local stepMagnitude = math.sqrt(stepX * stepX + stepY * stepY)
         local minStep = 0.5
         if stepMagnitude < minStep and distance > minStep then
@@ -341,11 +252,9 @@ RunService.RenderStepped:Connect(function(deltaTime)
             stepY = stepY * ratio
         end
 
-        -- Never overshoot
         if math.abs(stepX) > math.abs(deltaX) then stepX = deltaX end
         if math.abs(stepY) > math.abs(deltaY) then stepY = deltaY end
 
-        -- Frame-rate independence (normalize to 60fps)
         local dtScale = math.min(deltaTime * 60, 2)
         stepX = stepX * dtScale
         stepY = stepY * dtScale
@@ -354,19 +263,19 @@ RunService.RenderStepped:Connect(function(deltaTime)
             mousemoverel(stepX, stepY)
         end
     else
-        -- Camera CFrame aim (lerp method)
+        -- Camera CFrame aim
         if Aimflow.Settings.Smoothness > 0 then
             local scaleFactor = math.max(1, Aimflow.Settings.Smoothness / 10)
-            local targetRotation = CFrame.lookAt(CurrentCamera.CFrame.Position, targetPosition)
+            local targetRotation = CFrame.lookAt(CurrentCamera.CFrame.Position, targetPos)
             CurrentCamera.CFrame = CurrentCamera.CFrame:Lerp(targetRotation, 1 / scaleFactor)
         else
-            CurrentCamera.CFrame = CFrame.lookAt(CurrentCamera.CFrame.Position, targetPosition)
+            CurrentCamera.CFrame = CFrame.lookAt(CurrentCamera.CFrame.Position, targetPos)
         end
     end
 end)
 
 -- ============================================================
--- FOV CIRCLE (unchanged)
+-- FOV CIRCLE
 -- ============================================================
 
 task.spawn(function()
