@@ -67,7 +67,7 @@ local LocalPlayer = Players.LocalPlayer
 -- Touch device with no keyboard — a phone/tablet rather than a desktop with
 -- a touchscreen (those report both). Popups check this to size themselves up
 -- for fingers instead of a mouse cursor.
-local IsMobile = true --- UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local IsMobile =  true---- UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 --=============================================================================
 -- THEME
@@ -954,6 +954,31 @@ function NovaUI:CreateWindow(config)
 		Parent = config.Parent or ScreenParent(),
 	})
 
+	-- A zero-cost, non-interactive frame that simply FILLS ScreenGui, kept
+	-- around only to be measured. AbsolutePosition is reported in Roblox's own
+	-- screen space, which stops lining up with the space a ScreenGui's children
+	-- are positioned in the moment IgnoreGuiInset is on: the gui's top-left and
+	-- that space's origin are a top-bar inset apart, so feeding a raw
+	-- AbsolutePosition straight back into a Position (tooltips, popups, the
+	-- window's own resize math) lands everything an inset off. Reading the
+	-- origin off a frame that fills the gui, rather than hardcoding
+	-- GuiService:GetGuiInset(), keeps that conversion correct whichever way
+	-- IgnoreGuiInset is set and on devices that reserve no inset at all.
+	local GuiOrigin = New("Frame", {
+		Name = "GuiOrigin",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 1, 0),
+		Active = false,
+		ZIndex = 0,
+		Parent = ScreenGui,
+	})
+
+	--- Converts an AbsolutePosition into the offset a child of ScreenGui (or of
+	--- anything else that fills it, like Overlay) needs to sit at that spot.
+	local function ToGuiSpace(absolutePosition)
+		return absolutePosition - GuiOrigin.AbsolutePosition
+	end
+
 	-- Tooltip helper (needs ScreenGui + theme, so it's scoped per-window).
 	local function AttachTooltip(button, text)
 		local tooltip = New("TextLabel", {
@@ -972,7 +997,8 @@ function NovaUI:CreateWindow(config)
 		Round(tooltip, 5)
 		Pad(tooltip, 8, 0, 8, 0)
 		button.MouseEnter:Connect(function()
-			tooltip.Position = UDim2.fromOffset(button.AbsolutePosition.X + button.AbsoluteSize.X + 8, button.AbsolutePosition.Y + button.AbsoluteSize.Y / 2 - 12)
+			local anchor = ToGuiSpace(button.AbsolutePosition)
+			tooltip.Position = UDim2.fromOffset(anchor.X + button.AbsoluteSize.X + 8, anchor.Y + button.AbsoluteSize.Y / 2 - 12)
 			tooltip.Visible = true
 			tooltip.BackgroundTransparency = 1
 			Tween(tooltip, { BackgroundTransparency = 0 }, 0.08)
@@ -1231,7 +1257,7 @@ function NovaUI:CreateWindow(config)
 				math.max(4, math.floor((screenSize.Y - popupHeight) / 2))
 			)
 		else
-			local anchorPos = anchorButton.AbsolutePosition
+			local anchorPos = ToGuiSpace(anchorButton.AbsolutePosition)
 			local anchorSize = anchorButton.AbsoluteSize
 
 			local leftAlignedX = anchorPos.X
@@ -1918,7 +1944,7 @@ function NovaUI:CreateWindow(config)
 	-- itself off-screen like that.
 	local function ResizeKeepingTopLeft(newSize, duration, style)
 		local screenSize = ScreenGui.AbsoluteSize
-		local topLeft = Main.AbsolutePosition
+		local topLeft = ToGuiSpace(Main.AbsolutePosition)
 		local newWidth = newSize.X.Scale * screenSize.X + newSize.X.Offset
 		local newHeight = newSize.Y.Scale * screenSize.Y + newSize.Y.Offset
 		local newCenterX = topLeft.X + newWidth / 2
@@ -2187,7 +2213,7 @@ function NovaUI:CreateWindow(config)
 				startSize = Main.Size
 				-- Captured once, at drag start, and never moved for the rest
 				-- of the drag — see the comment below for why.
-				resizeTopLeft = Main.AbsolutePosition
+				resizeTopLeft = ToGuiSpace(Main.AbsolutePosition)
 			end
 		end))
 		Track(UserInputService.InputChanged:Connect(function(input)
