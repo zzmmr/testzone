@@ -67,7 +67,7 @@ local LocalPlayer = Players.LocalPlayer
 -- Touch device with no keyboard — a phone/tablet rather than a desktop with
 -- a touchscreen (those report both). Popups check this to size themselves up
 -- for fingers instead of a mouse cursor.
-local IsMobile =  true---- UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local IsMobile =  UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 --=============================================================================
 -- THEME
