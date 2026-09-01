@@ -3199,30 +3199,35 @@ function NovaUI:CreateWindow(config)
 			--- own line under the title/description and spans the full width of
 			--- the section, since a selection (especially a multi-select one)
 			--- doesn't read in the ~130px an inline control gets.
+			--- Clicking it opens a small search panel rather than a plain list:
+			--- a filter box narrows the options down as you type (the panel
+			--- shrinks to fit whatever survives), and a bulk-action row sits
+			--- under it — "Select All" (multi-select only, and it takes what the
+			--- current search is showing rather than every option) plus "None",
+			--- which clears the selection outright.
 			function Section:AddDropdown(id, cfg)
 				cfg = cfg or {}
 				local values = cfg.Values or {}
 				local multi = cfg.Multi or false
 				-- Only a floor for the popup's width before the button has been
 				-- measured — the button itself is full-width on its own line
-				-- under the title, not a fixed-width box beside it.
-				local minPopupWidth = 160
+				-- under the title, not a fixed-width box beside it. Wider than the
+				-- plain list used to need, so the search field and the All/None row
+				-- still read at the floor.
+				local minPopupWidth = 180
 
-				-- Options are keyed/displayed by tostring(name), so entries
-				-- that stringify the same (duplicate names, or duplicate
-				-- instances with the same .Name) collapse into a single
-				-- option rather than listing repeats.
-				local function CountUniqueNames(list)
-					local seen, count = {}, 0
-					for _, name in ipairs(list) do
-						local key = tostring(name)
-						if not seen[key] then
-							seen[key] = true
-							count = count + 1
-						end
-					end
-					return count
-				end
+				-- Popup geometry. The option list is capped at 6 rows and scrolls
+				-- past that; the search field and the All/None row above it are a
+				-- fixed-height header, so the popup's total height is that header
+				-- plus however many rows the current search leaves showing.
+				local OPTION_HEIGHT = 26
+				local OPTION_GAP = 2
+				local MAX_VISIBLE_OPTIONS = 6
+				local POPUP_PADDING = 4
+				local SEARCH_HEIGHT = 26
+				local ACTION_HEIGHT = 22
+				local SECTION_GAP = 4
+				local headerHeight = POPUP_PADDING * 2 + SEARCH_HEIGHT + ACTION_HEIGHT + SECTION_GAP * 2
 
 				local _, controlHolder = CreateRow(cfg, nil, true)
 
@@ -3286,33 +3291,157 @@ function NovaUI:CreateWindow(config)
 				-- be a real offset (OpenPopup places it off Size.X.Offset), so
 				-- it's re-measured from the button on every open rather than
 				-- scaled; until the button has been laid out once, the floor
-				-- below stands in.
-				local function ListHeight()
-					return math.min(CountUniqueNames(values), 6) * 28 + 8
-				end
+				-- below stands in. It isn't a bare list any more: a search field
+				-- and an All/None row stack above the options, so the popup is
+				-- laid out vertically instead of the scroller filling all of it.
 				local listFrame = New("Frame", {
 					BackgroundColor3 = theme.PopupBackground,
 					BackgroundTransparency = 0,
 					Visible = false,
 					ClipsDescendants = true,
-					Size = UDim2.new(0, minPopupWidth, 0, ListHeight()),
+					Size = UDim2.new(0, minPopupWidth, 0, headerHeight + OPTION_HEIGHT),
 					Parent = Overlay,
 				})
 				Round(listFrame, 6)
 				Stroke(listFrame, theme.Border, 1)
 				AddShadow(listFrame, { Transparency = 0.45, OffsetY = 6, Blur = 16 })
+				Pad(listFrame, POPUP_PADDING)
+				New("UIListLayout", {
+					SortOrder = Enum.SortOrder.LayoutOrder,
+					Padding = UDim.new(0, SECTION_GAP),
+					Parent = listFrame,
+				})
 
+				-- Search field. Same shape as AddInput's box (accent focus ring
+				-- included) so typing in a popup feels like typing anywhere else.
+				local searchPill = New("Frame", {
+					BackgroundColor3 = theme.ElementBackground,
+					Size = UDim2.new(1, 0, 0, SEARCH_HEIGHT),
+					LayoutOrder = 1,
+					Parent = listFrame,
+				})
+				Round(searchPill, 4)
+				Pad(searchPill, 6, 0, 6, 0)
+				New("UIListLayout", {
+					SortOrder = Enum.SortOrder.LayoutOrder,
+					FillDirection = Enum.FillDirection.Horizontal,
+					VerticalAlignment = Enum.VerticalAlignment.Center,
+					Padding = UDim.new(0, 5),
+					Parent = searchPill,
+				})
+				local searchRing = Stroke(searchPill, theme.Accent, 1.5, 1)
+				do
+					local icon = GetIcon("search", 12)
+					if icon then
+						icon.LayoutOrder = 1
+						icon.ImageColor3 = theme.SubText
+						icon.Parent = searchPill
+					else
+						New("TextLabel", {
+							Text = "\226\140\149",
+							Font = Enum.Font.GothamBold,
+							TextSize = 11,
+							TextColor3 = theme.SubText,
+							BackgroundTransparency = 1,
+							Size = UDim2.new(0, 12, 1, 0),
+							LayoutOrder = 1,
+							Parent = searchPill,
+						})
+					end
+				end
+				local searchInput = New("TextBox", {
+					Text = "",
+					PlaceholderText = "Search...",
+					Font = Enum.Font.Gotham,
+					TextSize = 12,
+					TextColor3 = theme.Text,
+					PlaceholderColor3 = theme.SubText,
+					ClearTextOnFocus = false,
+					BackgroundTransparency = 1,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					TextTruncate = Enum.TextTruncate.AtEnd,
+					Size = UDim2.new(1, -17, 1, 0),
+					LayoutOrder = 2,
+					Parent = searchPill,
+				})
+				searchInput.Focused:Connect(function()
+					Tween(searchRing, { Transparency = 0 }, 0.12)
+				end)
+				searchInput.FocusLost:Connect(function()
+					Tween(searchRing, { Transparency = 1 }, 0.15)
+				end)
+
+				-- Bulk-selection row. "Select All" only means anything for a
+				-- multi-select, so a single-select gets a full-width "None" rather
+				-- than half a row with a dead half beside it.
+				local actionRow = New("Frame", {
+					BackgroundTransparency = 1,
+					Size = UDim2.new(1, 0, 0, ACTION_HEIGHT),
+					LayoutOrder = 2,
+					Parent = listFrame,
+				})
+				New("UIListLayout", {
+					SortOrder = Enum.SortOrder.LayoutOrder,
+					FillDirection = Enum.FillDirection.Horizontal,
+					VerticalAlignment = Enum.VerticalAlignment.Center,
+					Padding = UDim.new(0, 4),
+					Parent = actionRow,
+				})
+				local function ActionButton(text, layoutOrder, size)
+					local btn = New("TextButton", {
+						Text = text,
+						Font = Enum.Font.GothamMedium,
+						TextSize = 11,
+						TextColor3 = theme.SubText,
+						BackgroundColor3 = theme.ElementBackground,
+						BackgroundTransparency = 0,
+						AutoButtonColor = false,
+						Size = size,
+						LayoutOrder = layoutOrder,
+						Parent = actionRow,
+					})
+					Round(btn, 4)
+					btn.MouseEnter:Connect(function()
+						Tween(btn, { BackgroundColor3 = theme.ElementBackgroundHover, TextColor3 = theme.Text }, 0.1)
+					end)
+					btn.MouseLeave:Connect(function()
+						Tween(btn, { BackgroundColor3 = theme.ElementBackground, TextColor3 = theme.SubText }, 0.1)
+					end)
+					return btn
+				end
+				local selectAllBtn = multi and ActionButton("Select All", 1, UDim2.new(0.5, -2, 1, 0)) or nil
+				local noneBtn = ActionButton("None", 2, multi and UDim2.new(0.5, -2, 1, 0) or UDim2.new(1, 0, 1, 0))
+
+				-- Height is driven by ResizePopup (below) off how many options the
+				-- search leaves showing, so it can't just fill listFrame the way it
+				-- did when the popup was nothing but this scroller.
 				local listScroll = New("ScrollingFrame", {
 					BackgroundTransparency = 1,
-					Size = UDim2.new(1, 0, 1, 0),
+					Size = UDim2.new(1, 0, 0, OPTION_HEIGHT),
 					CanvasSize = UDim2.new(0, 0, 0, 0),
 					AutomaticCanvasSize = Enum.AutomaticSize.Y,
 					ScrollBarThickness = 2,
 					BorderSizePixel = 0,
+					LayoutOrder = 3,
 					Parent = listFrame,
 				})
-				Pad(listScroll, 4)
-				New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2), Parent = listScroll })
+				New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, OPTION_GAP), Parent = listScroll })
+				-- Stand-in row so a search that matches nothing (or a dropdown with
+				-- no options yet) doesn't collapse the list to an empty sliver. Its
+				-- LayoutOrder is past any real option's, so it always sorts last.
+				local emptyLabel = New("TextLabel", {
+					Text = "No options",
+					Font = Enum.Font.Gotham,
+					TextSize = 12,
+					TextColor3 = theme.SubText,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					BackgroundTransparency = 1,
+					Visible = false,
+					Size = UDim2.new(1, 0, 0, OPTION_HEIGHT),
+					LayoutOrder = 1000000,
+					Parent = listScroll,
+				})
+				Pad(emptyLabel, 8, 0, 8, 0)
 
 				local Dropdown = { Value = multi and {} or nil, Changed = Signal.new(), _optionButtons = {} }
 				-- Tracks the in-flight hover Tween per option (keyed by name) so a
@@ -3328,6 +3457,8 @@ function NovaUI:CreateWindow(config)
 				-- object behind it is what Dropdown.Value holds, so a dropdown
 				-- built from parts hands parts back to the callback.
 				local optionByKey = {}
+				-- The popup's current search, lowercased. "" means "show everything".
+				local searchQuery = ""
 				-- Accepts either an entry itself or the name of one (from a
 				-- saved config, or just for convenience) and returns the live
 				-- entry. Values that don't name an option pass through
@@ -3369,6 +3500,46 @@ function NovaUI:CreateWindow(config)
 						btn.TextColor3 = active and theme.Accent or theme.Text
 					end
 				end
+				-- Plain case-insensitive substring match on the option's label —
+				-- string.find with plain=true, so a query containing Lua pattern
+				-- characters ("(", "%", "-") searches for them literally instead of
+				-- erroring or quietly matching something else.
+				local function Matches(key)
+					if searchQuery == "" then return true end
+					return string.find(key:lower(), searchQuery, 1, true) ~= nil
+				end
+				local function VisibleOptionCount()
+					local shown = 0
+					for key in pairs(Dropdown._optionButtons) do
+						if Matches(key) then shown = shown + 1 end
+					end
+					return shown
+				end
+				-- The header is fixed; only the list part moves, so the popup
+				-- shrinks as a search narrows the options down and grows back (to
+				-- the 6-row cap) when it's cleared.
+				local function ResizePopup(width, shown)
+					shown = shown or VisibleOptionCount()
+					local rows = math.clamp(shown, 1, MAX_VISIBLE_OPTIONS)
+					local listHeight = rows * OPTION_HEIGHT + (rows - 1) * OPTION_GAP
+					listScroll.Size = UDim2.new(1, 0, 0, listHeight)
+					listFrame.Size = UDim2.new(0, width or listFrame.Size.X.Offset, 0, headerHeight + listHeight)
+				end
+				local function ApplyFilter()
+					local shown = 0
+					for key, btn in pairs(Dropdown._optionButtons) do
+						local visible = Matches(key)
+						btn.Visible = visible
+						if visible then shown = shown + 1 end
+					end
+					emptyLabel.Text = searchQuery ~= "" and "No matches" or "No options"
+					emptyLabel.Visible = shown == 0
+					ResizePopup(nil, shown)
+				end
+				searchInput:GetPropertyChangedSignal("Text"):Connect(function()
+					searchQuery = searchInput.Text:lower()
+					ApplyFilter()
+				end)
 				function Dropdown:OnChanged(fn) Dropdown.Changed:Connect(fn) end
 				--- Dropdown:SetValue(value) — value may be an entry from Values
 				--- or its name; either way Dropdown.Value ends up holding the
@@ -3401,8 +3572,9 @@ function NovaUI:CreateWindow(config)
 				-- Pulled out so SetOptions can rebuild the list on demand
 				-- instead of only ever building it once at creation time.
 				local function CreateOptionButton(name, i)
+					local optKey = tostring(name)
 					local optBtn = New("TextButton", {
-						Text = tostring(name),
+						Text = optKey,
 						Font = Enum.Font.Gotham,
 						TextSize = 12,
 						TextColor3 = theme.Text,
@@ -3411,13 +3583,15 @@ function NovaUI:CreateWindow(config)
 						BackgroundColor3 = theme.Accent,
 						BackgroundTransparency = 1,
 						AutoButtonColor = false,
-						Size = UDim2.new(1, 0, 0, 26),
+						-- An option added while a search is running stays hidden
+						-- until it matches, same as any other non-match.
+						Visible = Matches(optKey),
+						Size = UDim2.new(1, 0, 0, OPTION_HEIGHT),
 						LayoutOrder = i,
 						Parent = listScroll,
 					})
 					Round(optBtn, 4)
 					Pad(optBtn, 8, 0, 8, 0)
-					local optKey = tostring(name)
 					Dropdown._optionButtons[optKey] = optBtn
 					optionByKey[optKey] = name
 					optBtn.MouseEnter:Connect(function()
@@ -3471,7 +3645,6 @@ function NovaUI:CreateWindow(config)
 							CreateOptionButton(name, i)
 						end
 					end
-					listFrame.Size = UDim2.new(0, listFrame.Size.X.Offset, 0, ListHeight())
 					-- Selections carry over by name, so a rebuilt list re-points
 					-- Value at the *new* list's entry rather than keeping a
 					-- reference to the old (possibly destroyed) object.
@@ -3487,7 +3660,36 @@ function NovaUI:CreateWindow(config)
 					end
 					RefreshButton()
 					RefreshHighlights()
+					ApplyFilter()
 				end
+
+				if selectAllBtn then
+					-- Selects everything the current search is showing and leaves
+					-- filtered-out selections alone: "Select All" means all of what
+					-- you can see, not a silent reset of what you'd already picked
+					-- before typing.
+					selectAllBtn.MouseButton1Click:Connect(function()
+						local newMap = {}
+						for option, on in pairs(Dropdown.Value or {}) do
+							if on then newMap[option] = true end
+						end
+						for key, option in pairs(optionByKey) do
+							if Matches(key) then newMap[option] = true end
+						end
+						Dropdown:SetValue(newMap)
+					end)
+				end
+				-- Clears every selection, search or no search — it's the "get me
+				-- back to nothing" escape hatch, so it deliberately ignores the
+				-- filter. Single-select closes after it, same as picking an option.
+				noneBtn.MouseButton1Click:Connect(function()
+					if multi then
+						Dropdown:SetValue({})
+					else
+						Dropdown:SetValue(nil)
+						ClosePopup()
+					end
+				end)
 
 				ddBtn.MouseButton1Click:Connect(function()
 					-- Match the popup to the button it drops out of, now that the
@@ -3495,12 +3697,17 @@ function NovaUI:CreateWindow(config)
 					-- constant. Measured here because AbsoluteSize isn't known
 					-- until the row has been laid out, and it changes with the
 					-- window / column count.
-					listFrame.Size = UDim2.new(0, math.max(ddBtn.AbsoluteSize.X, minPopupWidth), 0, ListHeight())
+					ResizePopup(math.max(ddBtn.AbsoluteSize.X, minPopupWidth))
 					OpenPopup(listFrame, ddBtn, {
 						Align = "left",
 						GrowHeight = true,
 						OnClose = function()
 							Tween(chevron, { Rotation = 0 }, 0.12)
+							-- Every open starts from a clean, unfiltered list.
+							-- Clearing the box re-runs ApplyFilter through the
+							-- Text handler above.
+							searchInput:ReleaseFocus()
+							searchInput.Text = ""
 						end,
 					})
 					-- OpenPopup toggles closed (and Visible=false) if this
@@ -3508,6 +3715,12 @@ function NovaUI:CreateWindow(config)
 					-- actually just opened.
 					if listFrame.Visible then
 						Tween(chevron, { Rotation = 180 }, 0.12)
+						-- Type-to-filter straight away on desktop. Skipped on touch,
+						-- where capturing focus throws the on-screen keyboard up
+						-- over the list that was just opened.
+						if not UserInputService.TouchEnabled then
+							searchInput:CaptureFocus()
+						end
 					end
 				end)
 				if cfg.Default ~= nil then
@@ -3515,6 +3728,7 @@ function NovaUI:CreateWindow(config)
 				else
 					RefreshButton()
 				end
+				ApplyFilter()
 
 				RegisterOption(id, Dropdown)
 				return Dropdown
