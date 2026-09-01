@@ -67,7 +67,7 @@ local LocalPlayer = Players.LocalPlayer
 -- Touch device with no keyboard — a phone/tablet rather than a desktop with
 -- a touchscreen (those report both). Popups check this to size themselves up
 -- for fingers instead of a mouse cursor.
-local IsMobile = true -- UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local IsMobile = true --- UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 --=============================================================================
 -- THEME
@@ -944,6 +944,11 @@ function NovaUI:CreateWindow(config)
 	local ScreenGui = New("ScreenGui", {
 		Name = "NovaUI",
 		ResetOnSpawn = false,
+		-- Spans the whole screen, including the strip behind Roblox's own
+		-- top bar — the notification gui above already does the same, and
+		-- without it the window's coordinate space is offset from the
+		-- actual screen by that inset.
+		IgnoreGuiInset = true,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		DisplayOrder = 100,
 		Parent = config.Parent or ScreenParent(),
@@ -3294,7 +3299,7 @@ function NovaUI:CreateWindow(config)
 				-- under the title, not a fixed-width box beside it. Wider than the
 				-- plain list used to need, so the search field and the All/None row
 				-- still read at the floor, and wider again on touch.
-				local minPopupWidth = IsMobile and 260 or 180
+				local minPopupWidth = IsMobile and 240 or 180
 
 				-- Popup geometry. The option list is capped at a row count and
 				-- scrolls past that; the search field and the All/None row above it
@@ -3796,8 +3801,11 @@ function NovaUI:CreateWindow(config)
 					-- it gets centered rather than dropped under the button.
 					local popupWidth
 					if IsMobile then
+						-- A little over half the screen, capped: 80% of a landscape
+						-- phone came out absurdly wide for a list of short labels.
 						local screenWidth = Overlay.AbsoluteSize.X
-						popupWidth = math.clamp(math.floor(screenWidth * 0.8), minPopupWidth, math.max(minPopupWidth, screenWidth - 32))
+						local widest = math.max(minPopupWidth, math.min(320, screenWidth - 32))
+						popupWidth = math.clamp(math.floor(screenWidth * 0.55), minPopupWidth, widest)
 					else
 						popupWidth = math.max(ddBtn.AbsoluteSize.X, minPopupWidth)
 					end
