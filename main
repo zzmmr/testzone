@@ -973,9 +973,13 @@ function NovaUI:CreateWindow(config)
 
 	-- The search / config-selector pills in the top bar. Both still fill the
 	-- row's height; only their width is set here (the selector's popup is
-	-- pinned to the same number so it stays flush with the pill).
-	local searchPillWidth = 132
-	local selectorPillWidth = 138
+	-- pinned to the same number so it stays flush with the pill). Trimmed
+	-- to pay for the autoload button — the ribbon is three 36px buttons wide
+	-- now, and search gives up more of it than the selector because its
+	-- placeholder is one short word while the selector shows real config
+	-- names that truncate.
+	local searchPillWidth = 104
+	local selectorPillWidth = 122
 
 	-- Every connection this window makes to a GLOBAL, persistent service
 	-- (UserInputService, Workspace) gets tracked here and explicitly
@@ -1508,8 +1512,8 @@ function NovaUI:CreateWindow(config)
 		Parent = TopBarRow,
 	})
 
-	-- Search pill (narrower than before — the save-config button added
-	-- next to the selector needs the room in the top bar).
+	-- Search pill (narrower than before — the save-config and autoload
+	-- buttons next to the selector need the room in the top bar).
 	local SearchPill = New("Frame", {
 		BackgroundColor3 = theme.ElementBackground,
 		Size = UDim2.new(0, searchPillWidth, 1, 0),
