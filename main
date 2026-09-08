@@ -1,71 +1,7 @@
---[[
-	NovaUI
-	A lightweight, dashboard-style UI library for Roblox.
+-- NovaUI Dashboard 3.0 | Based on the user-supplied NovaUI module.
+-- Same Window > Tab > Section API. Require from a LocalScript.
+-- Studio uses session configs; persistent storage can use ConfigSelector signals.
 
-	This is a standalone ModuleScript. Put it in ReplicatedStorage (or anywhere
-	a LocalScript can reach it) and `require()` it — see example.lua for usage.
-
-	Different from Fluent on purpose: there is no "add elements straight to a
-	tab" API. A Tab only ever holds Sections (Tab:AddSection), and every
-	element (toggle/slider/dropdown/colorpicker/keybind/input/button/
-	paragraph) is added to a Section as a row:
-
-		local Section = Tab:AddSection({ Title = "Display", Column = 1 })
-		Section:AddToggle("MyToggle", { Title = "Enable overlay", Default = true })
-		Section:AddSlider("Scale", { Title = "Scale", Min = 50, Max = 200, Suffix = "%" })
-
-	Icons: no external module dependency — give NovaUI a plain asset-id table
-	instead, via `NovaUI:SetIcons(table)` or CreateWindow's `Icons = table`
-	option (or drop a ModuleScript named "NovaIcons"/"Icons" under
-	ReplicatedStorage returning the same shape and it's found automatically):
-
-		{
-			["48px"]  = { rewind = {16898613699, {48, 48}, {563, 967}}, ... },
-			["256px"] = { rewind = {16898613699, {256, 256}, {0, 0}}, ... },
-		}
-
-	i.e. size-bucket key -> icon name -> {assetId, {pxWidth, pxHeight}, {offsetX, offsetY}}.
-	assetId is one shared sprite-sheet image per bucket; {pxWidth, pxHeight}
-	is this icon's size within that sheet, and {offsetX, offsetY} is where
-	it sits inside the sheet (rendered via ImageRectOffset/ImageRectSize).
-	The offset is optional — omit it (or use {0,0}) if assetId is instead a
-	one-icon-per-decal id rather than a packed sheet. Any number of size
-	buckets works; GetIcon picks the smallest bucket that's still big enough
-	for the requested render size and scales it down
-	(preserving aspect ratio), so keep at least one reasonably large bucket
-	per icon. Tab icons, chrome icons (search, folder, chevron, minimize,
-	fullscreen, close, notification close), and the bottom-of-sidebar
-	buttons (`config.SidebarButtons` / `Window:AddSidebarButton`) all pull
-	from this same table via the icon name string. Without a table set,
-	everything still works — icons just fall back to plain text glyphs.
-
-	Anywhere an icon name is accepted (Tab's `Icon`, SidebarButtons' `Icon`,
-	etc.), you can instead pass a raw numeric asset id (e.g. 123456789) or a
-	ready-made "rbxassetid://...", "rbxasset://...", or "http(s)://..."
-	string, and it's used directly with no lookup in the icon table at all.
-
-	Popups (dropdown lists, colorpickers, the top config selector) render in
-	a dedicated top-level overlay layer, so they're never occluded by other
-	rows/sections and close automatically on an outside click.
-
-	Motion is intentionally restrained/modern: short fades + small (4-8px)
-	slides, no overshoot/bounce easing.
-
-	Configs save themselves. The top bar's Create / Save / Set-as-Autoload
-	buttons read and write real files through the executor's filesystem
-	globals — no SaveManager to bolt on — under
-	<Folder>/Games/<game.GameId>/<name>.txt, where Folder defaults to
-	"NovaUI" (CreateWindow's `Folder` / `ConfigFolder` change that).
-	Picking a config from the selector loads it, and Window:StartAutoLoad()
-	— called once, after your UI is fully built — applies whichever config
-	is marked for autoload. Window.Configs exposes the same store
-	programmatically (List/Load/Save/Create/Delete), and the ConfigSelector
-	signals still fire throughout, so an existing OnSave/OnCreate/OnChanged
-	handler keeps working. With no filesystem available (Studio), the store
-	stands down and only the signals fire.
-
-	Theme: dark background with a blue accent (see Themes.Dark below).
---]]
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -77,51 +13,28 @@ local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 
--- Touch device with no keyboard — a phone/tablet rather than a desktop with
--- a touchscreen (those report both). Popups check this to size themselves up
--- for fingers instead of a mouse cursor.
 local IsMobile =  UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
---=============================================================================
--- THEME
---=============================================================================
-
 local Themes = {
-	-- Elevation ladder, darkest to lightest: Background (the window itself)
-	-- < Divider/PopupBackground (subtle separators + popups, barely lifted)
-	-- < SecondaryBackground (elevated cards: dialogs, notifications — reads
-	-- as "raised" because it's lighter than what it floats on, same logic
-	-- as any dark-theme elevation system) < ElementBackground (buttons/rows
-	-- resting on the window) < ElementBackgroundHover < Border (has to stay
-	-- visible against every surface above it, so it sits at the top).
 	Dark = {
-		Accent = Color3.fromRGB(70, 130, 255),
-		AccentHover = Color3.fromRGB(95, 150, 255),
-		Background = Color3.fromRGB(34, 35, 41),
-		SecondaryBackground = Color3.fromRGB(42, 44, 50),
-		ElementBackground = Color3.fromRGB(44, 46, 52),
-		ElementBackgroundHover = Color3.fromRGB(54, 56, 63),
-		PopupBackground = Color3.fromRGB(40, 42, 48),
-		Text = Color3.fromRGB(235, 236, 240),
-		SubText = Color3.fromRGB(140, 142, 155),
-		Border = Color3.fromRGB(58, 60, 68),
-		Divider = Color3.fromRGB(40, 41, 47),
+		Accent = Color3.fromRGB(117, 167, 244),
+		AccentHover = Color3.fromRGB(148, 188, 250),
+		Background = Color3.fromRGB(15, 17, 20),
+		SecondaryBackground = Color3.fromRGB(20, 23, 26),
+		ElementBackground = Color3.fromRGB(28, 32, 38),
+		ElementBackgroundHover = Color3.fromRGB(39, 44, 52),
+		PopupBackground = Color3.fromRGB(27, 31, 37),
+		Text = Color3.fromRGB(226, 231, 238),
+		SubText = Color3.fromRGB(136, 144, 155),
+		Border = Color3.fromRGB(43, 49, 58),
+		Divider = Color3.fromRGB(28, 32, 38),
 	},
 }
--- Sidebar background: a matte near-black blended faintly toward Accent, so
--- it reads as "dark with a hint of blue" rather than plain flat gray/black,
--- without needing a hardcoded color that'd look wrong if Accent is changed.
-Themes.Dark.SidebarBackground = Themes.Dark.Background:Lerp(Themes.Dark.Accent, 0.06)
+Themes.Dark.SidebarBackground = Color3.fromRGB(10, 12, 14)
 
--- Declared here (before the utilities below that reference it, like
--- AddShadow checking NovaUI.ReducedEffects) — populated with the rest of
--- its fields/methods further down where LIBRARY ROOT is.
 local NovaUI = {}
 
---=============================================================================
--- UTILITIES
---=============================================================================
-
+local DrawIcon
 local function New(className, props, children)
 	local inst = Instance.new(className)
 	for prop, value in pairs(props or {}) do
@@ -135,19 +48,75 @@ local function New(className, props, children)
 	if props and props.Parent then
 		inst.Parent = props.Parent
 	end
+	if DrawIcon and props and props.Text then DrawIcon(inst) end
 	return inst
 end
 
--- Global multiplier applied to every radius that passes through Round() —
--- turn the knob here to make the whole UI's corners sharper/rounder at once
--- instead of touching every individual Round(...) call site.
-local CORNER_SCALE = 0.65
+-- Local vector glyphs avoid network assets and missing-font symbols.
+DrawIcon = function(label, requested)
+	if not (label:IsA("TextLabel") or label:IsA("TextButton")) then return end
+	local glyphs = {["⌂"]="home", ["⊕"]="crosshair", ["ϟ"]="zap", ["◎"]="target", ["◉"]="eye", ["⌁"]="activity",
+		["♧"]="users", ["◇"]="box", ["▣"]="folder", ["⚙"]="settings", ["⌕"]="search", ["□"]="folder",
+		["▾"]="chevron-down", ["▢"]="maximize-2", ["✕"]="x", ["—"]="minus", ["↘"]="arrow-down-right"}
+	local name = requested or glyphs[label.Text]
+	local paths = {
+		home={{3,11,12,3},{12,3,21,11},{5,10,5,21},{5,21,19,21},{19,21,19,10},{10,21,10,14},{10,14,14,14},{14,14,14,21}},
+		crosshair={{12,1,12,7},{12,17,12,23},{1,12,7,12},{17,12,23,12}},
+		zap={{14,2,4,14},{4,14,11,14},{11,14,9,22},{9,22,21,9},{21,9,13,9},{13,9,14,2}},
+		eye={{2,12,7,6},{7,6,17,6},{17,6,22,12},{22,12,17,18},{17,18,7,18},{7,18,2,12}},
+		activity={{1,12,6,12},{6,12,9,3},{9,3,14,21},{14,21,17,12},{17,12,23,12}},
+		users={{2,21,2,17},{2,17,5,14},{5,14,12,14},{12,14,15,17},{15,17,15,21},{17,14,21,17},{21,17,21,21}},
+		box={{3,7,12,2},{12,2,21,7},{21,7,21,17},{21,17,12,22},{12,22,3,17},{3,17,3,7},{3,7,12,12},{12,12,21,7},{12,12,12,22}},
+		folder={{2,6,9,6},{9,6,12,9},{12,9,22,9},{22,9,22,21},{22,21,2,21},{2,21,2,6}},
+		search={{16,16,22,22}},
+		["chevron-down"]={{6,9,12,15},{12,15,18,9}},
+		["maximize-2"]={{4,10,4,4},{4,4,10,4},{14,4,20,4},{20,4,20,10},{20,14,20,20},{20,20,14,20},{10,20,4,20},{4,20,4,14}},
+		x={{6,6,18,18},{18,6,6,18}}, minus={{5,12,19,12}},
+		["arrow-down-right"]={{6,6,18,18},{10,18,18,18},{18,18,18,10}},
+	}
+	if not name or not (paths[name] or name=="target" or name=="settings" or name=="globe") then return end
+	local old=label:FindFirstChild("VectorGlyph") if old then old:Destroy() end
+	label.Text=""
+	local holder=Instance.new("Frame")
+	holder.Name="VectorGlyph" holder.BackgroundTransparency=1 holder.Size=UDim2.fromOffset(17,17)
+	holder.AnchorPoint=Vector2.new(0.5,0.5) holder.Position=UDim2.fromScale(0.5,0.5) holder.Parent=label
+	local pieces, strokes={},{}
+	local function line(x1,y1,x2,y2)
+		local v=Vector2.new(x2-x1,y2-y1)
+		local f=Instance.new("Frame") f.BorderSizePixel=0 f.BackgroundColor3=label.TextColor3
+		f.AnchorPoint=Vector2.new(0.5,0.5) f.Position=UDim2.fromScale((x1+x2)/48,(y1+y2)/48)
+		f.Size=UDim2.new(v.Magnitude/24,0,0,1.4) f.Rotation=math.deg(math.atan2(v.Y,v.X)) f.Parent=holder
+		local c=Instance.new("UICorner") c.CornerRadius=UDim.new(1,0) c.Parent=f table.insert(pieces,f)
+	end
+	local function circle(x,y,r)
+		local f=Instance.new("Frame") f.BackgroundTransparency=1 f.AnchorPoint=Vector2.new(0.5,0.5)
+		f.Position=UDim2.fromScale(x/24,y/24) f.Size=UDim2.fromScale(r/12,r/12) f.Parent=holder
+		local c=Instance.new("UICorner") c.CornerRadius=UDim.new(0.5,0) c.Parent=f
+		local st=Instance.new("UIStroke") st.Color=label.TextColor3 st.Thickness=1.3 st.Parent=f table.insert(strokes,st)
+	end
+	for _,p in ipairs(paths[name] or {}) do line(table.unpack(p)) end
+	if name=="target" then circle(12,12,10) circle(12,12,6) circle(12,12,2)
+	elseif name=="crosshair" then circle(12,12,8)
+	elseif name=="eye" then circle(12,12,3)
+	elseif name=="search" then circle(10,10,7)
+	elseif name=="users" then circle(8,7,4) circle(18,8,3)
+	elseif name=="globe" then circle(12,12,10) circle(12,12,5) line(2,12,22,12) line(12,2,12,22)
+	elseif name=="settings" then
+		circle(12,12,7) circle(12,12,2.5)
+		for i=0,7 do local a=i*math.pi/4 line(12+8*math.cos(a),12+8*math.sin(a),12+11*math.cos(a),12+11*math.sin(a)) end
+	end
+	local function refresh()
+		for _,f in ipairs(pieces) do f.BackgroundColor3=label.TextColor3 f.BackgroundTransparency=label.TextTransparency end
+		for _,st in ipairs(strokes) do st.Color=label.TextColor3 st.Transparency=label.TextTransparency end
+	end
+	label:GetPropertyChangedSignal("TextColor3"):Connect(refresh)
+	label:GetPropertyChangedSignal("TextTransparency"):Connect(refresh)
+	refresh()
+end
 
--- `corners`, if given, overrides individual corners on top of the uniform
--- `radius` — e.g. Round(Sidebar, 14, { TopRight = 0, BottomRight = 0 }) for
--- a panel that's only rounded on the outer (left) edge. Keys: TopLeft,
--- TopRight, BottomLeft, BottomRight. All radii (uniform and per-corner) are
--- scaled by CORNER_SCALE; 0 stays 0 either way.
+
+local CORNER_SCALE = 1
+
 local function Round(inst, radius, corners)
 	local corner = New("UICorner", { CornerRadius = UDim.new(0, math.floor((radius or 6) * CORNER_SCALE)), Parent = inst })
 	if corners then
@@ -159,14 +128,6 @@ local function Round(inst, radius, corners)
 	return inst
 end
 
--- For toggle/slider tracks, knobs, and other elements that are meant to
--- stay a perfect pill/circle no matter what: CORNER_SCALE shrinking Round()'s
--- radius below half the element's own height is exactly what was breaking
--- these (a toggle track's radius has to equal half its height to read as a
--- capsule, and shrinking that radius by 0.65x turns it into a visibly
--- squared-off rounded rect instead). Scale-based CornerRadius (0.5, 0) always
--- rounds relative to the smaller dimension, so it stays fully round
--- regardless of CORNER_SCALE or the element's exact pixel size.
 local function Pill(inst)
 	New("UICorner", { CornerRadius = UDim.new(0.5, 0), Parent = inst })
 	return inst
@@ -194,7 +155,6 @@ local function Pad(inst, l, t, r, b)
 	return inst
 end
 
--- Modern, restrained easing everywhere: short duration, no overshoot/bounce.
 local EASE = Enum.EasingStyle.Quad
 local EASE_SOFT = Enum.EasingStyle.Quint
 
@@ -205,12 +165,6 @@ local function Tween(inst, props, time, style, dir)
 	return tw
 end
 
--- Fades `root` itself and every descendant's visible-transparency property
--- (BackgroundTransparency, TextTransparency, ImageTransparency, and any
--- UIStroke's Transparency) to fully invisible. Without this, closing
--- something like Window:Dialog by only tweening the outer overlay/card
--- leaves child text/button-backgrounds/strokes fully opaque right up until
--- the instance is destroyed, so they visibly "pop" out instead of fading.
 local function FadeOutTree(root, duration)
 	duration = duration or 0.12
 	for _, inst in ipairs(root:GetDescendants()) do
@@ -233,16 +187,6 @@ local function FadeOutTree(root, duration)
 	end
 end
 
--- IMPORTANT: the movement/end tracking below is on the GLOBAL
--- UserInputService, not on `handle`. A GuiObject's own InputChanged only
--- fires while the cursor is still over that object's bounds — during an
--- actual drag the cursor leaves the (usually small) handle almost
--- immediately, which silently stops the drag. Only InputBegan (to detect
--- the press starting on the handle) needs to be scoped to `handle`.
--- `track`, if given, is called with every connection made to the GLOBAL
--- UserInputService so the caller can disconnect them later (destroying
--- `frame` does NOT disconnect these on its own — see AllConnections/Track
--- in CreateWindow for why that matters).
 local function MakeDraggable(frame, handle, track)
 	handle = handle or frame
 	local dragging = false
@@ -274,23 +218,13 @@ local function MakeDraggable(frame, handle, track)
 	end))
 end
 
--- Roblox's native UIShadow instance (a UI modifier, like UICorner/UIStroke —
--- it doesn't participate in UIListLayout and isn't clipped by its own
--- parent's ClipsDescendants), so it can be added directly to any Frame.
 local function AddShadow(parent, opts)
 	opts = opts or {}
 	return New("UIShadow", {
 		Color = opts.Color or Color3.new(0, 0, 0),
 		Transparency = opts.Transparency or 0.6,
-		-- opts.OffsetY/opts.Blur were silently ignored here for a long time
-		-- (Offset/BlurRadius were hardcoded to (0,0)/24 regardless of what
-		-- every call site passed in) — fixed to actually read them, falling
-		-- back to those same old defaults when omitted.
 		Offset = UDim2.fromOffset(0, opts.OffsetY or 0),
 		Spread = UDim2.fromScale(0, 0),
-		-- BlurRadius is a real GPU blur post-effect — the priciest part of a
-		-- shadow. ReducedEffects drops it to 0 (a flat, cheap offset shadow)
-		-- and disables the shadow outright, for lower-end hardware.
 		BlurRadius = UDim.new(0, opts.Blur or 24),
 		ZIndex = opts.ZIndex or 0,
 		Enabled = (opts.Enabled ~= false) and not NovaUI.ReducedEffects,
@@ -298,13 +232,6 @@ local function AddShadow(parent, opts)
 	})
 end
 
--- Hover feedback everywhere is transparency-only now — no Size/UIScale
--- animation on any button, so nothing ever nudges layout or competes with
--- a control's own Size-driven state (sliders, resize handles, etc.).
--- `idleTransparency`/`hoverTransparency` let a solid-fill button (idle 0,
--- hover ~0.35 — fades toward see-through) and an already-transparent
--- reveal-style icon button (idle 1, hover ~0.85 — fades toward opaque) both
--- use the same helper.
 local function AddHoverFade(button, idleTransparency, hoverTransparency, duration)
 	idleTransparency = idleTransparency or 0
 	hoverTransparency = hoverTransparency or 0.35
@@ -317,45 +244,29 @@ local function AddHoverFade(button, idleTransparency, hoverTransparency, duratio
 	end)
 end
 
--- Quick fade + tiny scale for popups/dropdown lists when they open. No bounce.
+-- Keep popup dimensions stable while revealing the surface.
+local SurfaceMotion = setmetatable({}, {__mode = "k"})
 local function PopIn(frame)
-	local scale = frame:FindFirstChildOfClass("UIScale")
-	if not scale then
-		scale = New("UIScale", { Scale = 1, Parent = frame })
+	local state = SurfaceMotion[frame]
+	if state then
+		for _, tw in ipairs(state) do tw:Cancel() end
 	end
-	scale.Scale = 0.96
-	Tween(scale, { Scale = 1 }, 0.12, EASE)
+	local target = frame.Position
+	local transparency = frame:GetAttribute("MotionBackground")
+	if transparency == nil then transparency = frame.BackgroundTransparency frame:SetAttribute("MotionBackground", transparency) end
+	frame.BackgroundTransparency = transparency
+	if NovaUI.ReducedEffects then return end
+	frame.Position = target + UDim2.fromOffset(0, 2)
+	frame.BackgroundTransparency = 1
+	SurfaceMotion[frame] = {
+		Tween(frame, {Position = target, BackgroundTransparency = transparency}, 0.14, EASE),
+	}
 end
 
--- Like PopIn, but only the height animates in — the frame spawns already at
--- its full final width and grows downward on Y alone, instead of scaling
--- both axes uniformly via UIScale. `frame` must have ClipsDescendants = true
--- (its children shouldn't render outside the still-growing bounds).
--- Handles both a manually-sized frame (Size already set to the target) and
--- an AutomaticSize.Y one (SelectorList's height comes from its content, not
--- a fixed number) — for the latter, it reads the natural settled height,
--- takes over manually for the grow animation, then hands sizing back to
--- AutomaticSize once the tween finishes.
 local function PopInHeight(frame)
-	local targetSize = frame.Size
-	local autoSize = frame.AutomaticSize
-	if autoSize ~= Enum.AutomaticSize.None then
-		local naturalHeight = frame.AbsoluteSize.Y
-		frame.AutomaticSize = Enum.AutomaticSize.None
-		frame.Size = UDim2.new(targetSize.X.Scale, targetSize.X.Offset, 0, 0)
-		local tw = Tween(frame, { Size = UDim2.new(targetSize.X.Scale, targetSize.X.Offset, 0, naturalHeight) }, 0.12, EASE)
-		tw.Completed:Connect(function()
-			if frame.Parent then
-				frame.AutomaticSize = autoSize
-			end
-		end)
-	else
-		frame.Size = UDim2.new(targetSize.X.Scale, targetSize.X.Offset, 0, 0)
-		Tween(frame, { Size = targetSize }, 0.12, EASE)
-	end
+	PopIn(frame)
 end
 
--- Subtle fade + small rise-in for newly created rows/cards. No bounce.
 local function FadeSlideIn(inst, delayTime)
 	local originalPosition = inst.Position
 	local originalTransparency = inst.BackgroundTransparency
@@ -368,7 +279,6 @@ local function FadeSlideIn(inst, delayTime)
 	end)
 end
 
--- Minimal signal/event implementation used by every element (:OnChanged, :OnClick, ...)
 local Signal = {}
 Signal.__index = Signal
 
@@ -387,19 +297,9 @@ function Signal:Fire(...)
 end
 
 local function ScreenParent()
-	return game:GetService("CoreGui")
+	return Players.LocalPlayer:WaitForChild("PlayerGui")
 end
 
---=============================================================================
--- FILESYSTEM
---=============================================================================
-
--- readfile/writefile/isfolder/... aren't Roblox APIs, they're executor
--- extensions — under Studio (or a stripped-down executor) they're simply
--- absent, and reading an undefined global just yields nil rather than
--- erroring. Everything funnels through this table so the built-in config
--- store can check FS.Ready once and quietly degrade to signals-only, instead
--- of blowing up the moment a window is created somewhere without file access.
 local FS = {
 	IsFolder = isfolder,
 	MakeFolder = makefolder,
@@ -407,7 +307,6 @@ local FS = {
 	IsFile = isfile,
 	ReadFile = readfile,
 	WriteFile = writefile,
-	-- Optional: everything but deleting a config works without it.
 	DeleteFile = delfile,
 }
 FS.Ready = type(FS.IsFolder) == "function"
@@ -417,9 +316,24 @@ FS.Ready = type(FS.IsFolder) == "function"
 	and type(FS.ReadFile) == "function"
 	and type(FS.WriteFile) == "function"
 
--- Creates every level of `path` in turn. makefolder isn't recursive on all
--- executors, so handing it "a/b/c" in one call can silently do nothing when
--- "a" doesn't exist yet.
+local StorageMode = FS.Ready and "Files" or "Session"
+if not FS.Ready then
+	local files, folders = {}, {}
+	FS = {
+		Ready = true,
+		IsFolder = function(path) return folders[path] == true end,
+		MakeFolder = function(path) folders[path] = true end,
+		ListFiles = function(path)
+			local results = {}
+			for name in pairs(files) do if name:sub(1, #path + 1) == path .. "/" then table.insert(results, name) end end
+			return results
+		end,
+		IsFile = function(path) return files[path] ~= nil end,
+		ReadFile = function(path) return files[path] end,
+		WriteFile = function(path, value) files[path] = value end,
+		DeleteFile = function(path) files[path] = nil end,
+	}
+end
 local function EnsureFolder(path)
 	if not FS.Ready then return false end
 	local built
@@ -433,19 +347,8 @@ local function EnsureFolder(path)
 	return FS.IsFolder(path) and true or false
 end
 
---=============================================================================
--- LIBRARY ROOT
---=============================================================================
-
-NovaUI.Version = "2.0.0"
+NovaUI.Version = "3.0.0-dashboard"
 NovaUI.Options = {}
---- Every Section:AddX with an `id` registers here, and that id is the only
---- handle ExportConfig/ApplyConfig have on the element. Reusing an id (easy
---- to do by accident once a UI is big enough to span several tabs) used to
---- silently drop the earlier element out of the table: it kept working on
---- screen but stopped being saved, and a loaded config never pushed a value
---- back into it, so it just sat there showing stale state. Still last-write-
---- wins, but it says so now.
 local function RegisterOption(id, opt)
 	if id == nil then return end
 	if NovaUI.Options[id] ~= nil then
@@ -455,37 +358,19 @@ local function RegisterOption(id, opt)
 end
 NovaUI.Unloaded = false
 NovaUI.Theme = Themes.Dark
-NovaUI.Icons = loadstring(game:HttpGet("https://raw.githubusercontent.com/zzmmr/icons/refs/heads/main/main"))()
+NovaUI.Icons = nil
 
--- UIShadow's BlurRadius is a real (GPU) blur post-effect — cheap for one
--- small shadow, but can add up if it's on a big window plus several popups
--- at once, especially on lower-end hardware/older devices. When true, every
--- AddShadow() call below skips the blur (and the shadow itself) entirely.
--- Toggle with NovaUI:SetReducedEffects(true) or CreateWindow's
--- `ReducedEffects = true`.
 NovaUI.ReducedEffects = false
 function NovaUI:SetReducedEffects(enabled)
 	NovaUI.ReducedEffects = enabled and true or false
 end
 
---=============================================================================
--- CONFIG SERIALIZATION (JSON) — Color3 values are stored as a tagged
--- {__type="Color3", R=, G=, B=} table since raw Color3 isn't JSON-safe.
---=============================================================================
-
 local function SerializeValue(value)
 	if typeof(value) == "Color3" then
 		return { __type = "Color3", R = value.R, G = value.G, B = value.B }
 	elseif typeof(value) == "EnumItem" then
-		-- Keybind values are real Enum.KeyCode / Enum.UserInputType items now,
-		-- neither of which HttpService:JSONEncode can serialize directly.
 		return { __type = "EnumItem", EnumType = tostring(value.EnumType):gsub("^Enum%.", ""), Name = value.Name }
 	elseif typeof(value) == "table" then
-		-- Multi-select dropdown map. Its keys are the raw Values entries, which
-		-- may be Instances (or anything else JSONEncode chokes on, and non-string
-		-- keys are unencodable regardless), so it goes out as a plain array of
-		-- selected option names. Dropdown:SetValue resolves names back to the
-		-- live entries on the way in.
 		local names = {}
 		for option, on in pairs(value) do
 			if on then table.insert(names, tostring(option)) end
@@ -493,8 +378,6 @@ local function SerializeValue(value)
 		table.sort(names)
 		return names
 	elseif value ~= nil and typeof(value) ~= "string" and typeof(value) ~= "number" and typeof(value) ~= "boolean" then
-		-- Single-select dropdown holding an object entry (a part, a player, ...)
-		-- — same deal: stored by name, resolved back by SetValue.
 		return tostring(value)
 	end
 	return value
@@ -509,13 +392,6 @@ local function DeserializeValue(value)
 	end
 	return value
 end
-
---=============================================================================
--- KEYBIND-STYLE INPUT MATCHING — shared between Section:AddKeybind and any
--- rebindable hotkey field (Window.MinimizeKey, Window.ToggleKey, ...). A
--- "bound value" is always a real Enum item: Enum.KeyCode.* for a keyboard
--- key, or Enum.UserInputType.MouseButton1/2/3 for a mouse button.
---=============================================================================
 
 local MOUSE_BUTTON_LABELS = {
 	[Enum.UserInputType.MouseButton1] = "MB1",
@@ -542,9 +418,6 @@ local function KeybindMatches(value, input)
 	return false
 end
 
---- NovaUI:ExportConfig() -> table mapping every registered option id to its
---- current (JSON-safe) value. Colorpicker values come back as
---- {__type="Color3", R,G,B} rather than a raw Color3.
 function NovaUI:ExportConfig()
 	local data = {}
 	for id, opt in pairs(NovaUI.Options) do
@@ -553,15 +426,10 @@ function NovaUI:ExportConfig()
 	return data
 end
 
---- NovaUI:ExportConfigJSON() -> JSON string of NovaUI:ExportConfig().
 function NovaUI:ExportConfigJSON()
 	return HttpService:JSONEncode(NovaUI:ExportConfig())
 end
 
---- NovaUI:ApplyConfig(data) — data may be a Lua table (id -> value, as
---- produced by ExportConfig) or a JSON string. Pushes each value into the
---- matching live option via its :SetValue/:SetValueRGB method, so every
---- toggle/slider/dropdown/colorpicker/keybind/input on screen updates.
 function NovaUI:ApplyConfig(data)
 	if type(data) == "string" then
 		local ok, decoded = pcall(function() return HttpService:JSONDecode(data) end)
@@ -570,10 +438,6 @@ function NovaUI:ApplyConfig(data)
 	end
 	if type(data) ~= "table" then return false end
 
-	-- Applied in sorted id order rather than raw `pairs` order. pairs is
-	-- arbitrary, so when a load only half-lands it lands a *different* half
-	-- every time, which makes the failure look random and is miserable to
-	-- track down.
 	local ids = {}
 	for id in pairs(data) do
 		table.insert(ids, id)
@@ -584,17 +448,6 @@ function NovaUI:ApplyConfig(data)
 		local opt = NovaUI.Options[id]
 		if opt then
 			local value = DeserializeValue(data[id])
-			-- Each option is pushed on its own thread, because :SetValue runs
-			-- the option's Callback on whatever thread called it. Callbacks in
-			-- a UI like this routinely never return (`while on do task.wait()
-			-- ... end` farm loops) or error outright, and on a single shared
-			-- loop either one strands every option that hasn't been reached
-			-- yet — so a big config comes back with an arbitrary chunk of the
-			-- UI still showing its old state, and only the options that
-			-- happened to be applied before the offending one look right.
-			-- SetValue repaints before it fires the callback, so every
-			-- control's visual has already landed by the time its thread
-			-- yields or dies.
 			task.spawn(function()
 				if typeof(value) == "Color3" and opt.SetValueRGB then
 					opt:SetValueRGB(value)
@@ -607,19 +460,6 @@ function NovaUI:ApplyConfig(data)
 	return true
 end
 
---- Provide your own icon asset table (no external module dependency).
---- Each bucket's assetId is one sprite-sheet image shared by every icon in
---- that bucket; {w,h} is the icon's size within the sheet and the optional
---- {x,y} is its top-left offset inside the sheet (ImageRectSize/Offset).
---- Omit {x,y} (or use {0,0}) if assetId is instead a dedicated per-icon
---- decal rather than a sheet.
---- Shape: { ["48px"] = { iconname = {assetId, {pxWidth, pxHeight}, {offsetX, offsetY}}, ... },
----          ["256px"] = { iconname = {assetId, {pxWidth, pxHeight}, {offsetX, offsetY}}, ... } }
---- Any number of size buckets is fine — keys just need a number in them
---- (e.g. "48px", "256", "64x64"). GetIcon picks the smallest bucket that's
---- still >= the requested render size (falling back to the largest bucket
---- available if none is big enough), then scales to fit while preserving
---- each icon's native aspect ratio.
 function NovaUI:SetIcons(iconTable)
 	NovaUI.Icons = iconTable
 end
@@ -648,14 +488,6 @@ local function PickIconSizeKey(sheet, targetSize)
 	return bestKey or largestKey
 end
 
--- Returns an ImageLabel for `name` from the icon table, or nil if
--- unavailable/not found — callers should always have a text fallback.
---
--- `name` doesn't have to be a name in the icon table at all: pass a raw
--- numeric asset id (e.g. 123456789), or a string already in
--- rbxassetid://, rbxasset://, or http(s):// form, and it's used directly as
--- the image with no lookup — handy for Tab/AddSidebarButton icons when you'd
--- rather point straight at a decal than add an entry to the icon table.
 local function GetIcon(name, size, propsOverrides)
 	if not name or name == "" then return nil end
 
@@ -705,9 +537,6 @@ local function GetIcon(name, size, propsOverrides)
 			BackgroundTransparency = 1,
 			Size = UDim2.fromOffset(math.floor(nativeW * scale + 0.5), math.floor(nativeH * scale + 0.5)),
 		}
-		-- If the table gives an {x,y} sheet offset, assetId is a shared
-		-- sprite sheet — carve out just this icon's sub-rectangle instead of
-		-- rendering the whole sheet image.
 		if offset then
 			props.ImageRectOffset = Vector2.new(offset[1] or 0, offset[2] or 0)
 			props.ImageRectSize = Vector2.new(nativeW, nativeH)
@@ -724,8 +553,6 @@ local function GetIcon(name, size, propsOverrides)
 	return label
 end
 
--- Sets a button's visible content to an icon (from the icon table) when
--- back to a text glyph otherwise. Returns a handle with :SetColor(color).
 local function SetButtonIcon(button, iconName, fallbackText, size, color)
 	local existing = button:FindFirstChild("__Icon")
 	if existing then existing:Destroy() end
@@ -741,6 +568,9 @@ local function SetButtonIcon(button, iconName, fallbackText, size, color)
 	else
 		button.Text = fallbackText or ""
 		button.TextColor3 = color or Color3.new(1, 1, 1)
+		button.Font = Enum.Font.GothamMedium
+		button.TextSize = size or 13
+		DrawIcon(button, iconName)
 	end
 
 	return {
@@ -751,9 +581,6 @@ local function SetButtonIcon(button, iconName, fallbackText, size, color)
 				button.TextColor3 = c
 			end
 		end,
-		-- Exposed so callers that need more than SetColor (e.g. tweening
-		-- transparency for a hover-reveal effect) don't have to duplicate
-		-- the icon-vs-fallback-text branching themselves.
 		Instance = icon or button,
 		Property = icon and "ImageTransparency" or "TextTransparency",
 	}
@@ -795,16 +622,10 @@ local function EnsureNotifHolder()
 	return NotifHolder
 end
 
---- Fluent:Notify({ Title, Content, SubContent, Duration })
 function NovaUI:Notify(config)
 	local theme = NovaUI.Theme
 	local holder = EnsureNotifHolder()
 
-	-- IMPORTANT: `card` uses AutomaticSize.Y. Never give a direct child of
-	-- an AutomaticSize.Y frame a Scale-based Y size (e.g. UDim2.new(0,3,1,0))
-	-- — that's a circular size dependency and is what made notifications
-	-- balloon to a huge height before. The accent strip's height is instead
-	-- driven explicitly from `content`'s resolved AbsoluteSize below.
 	local card = New("Frame", {
 		BackgroundColor3 = theme.SecondaryBackground,
 		Size = UDim2.new(1, 0, 0, 0),
@@ -830,14 +651,6 @@ function NovaUI:Notify(config)
 		Parent = content,
 	})
 
-	--[[local accentBar = New("Frame", {
-		BackgroundColor3 = theme.Accent,
-		Size = UDim2.new(0, 3, 0, 0),
-		Parent = card,
-	})
-	content:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-		accentBar.Size = UDim2.new(0, 3, 0, content.AbsoluteSize.Y)
-	end)]]
 
 	local closeBtn = New("TextButton", {
 		Text = "",
@@ -917,11 +730,6 @@ function NovaUI:Notify(config)
 		if not (card and card.Parent) then return end
 		Tween(card, { Position = UDim2.new(1, 24, 0, 0), BackgroundTransparency = 1 }, 0.16, EASE_SOFT)
 		Tween(shadow, { Transparency = 1 }, 0.16)
-		-- Fade every descendant too (title/content/subcontent text, the
-		-- card's own border stroke, the close icon, the accent bar and
-		-- progress bar backgrounds) — otherwise only the card's own
-		-- background fades and everything else stays opaque until
-		-- card:Destroy() cuts it off abruptly.
 		FadeOutTree(card, 0.16)
 		task.delay(0.16, function()
 			if card then card:Destroy() end
@@ -944,10 +752,6 @@ function NovaUI:Notify(config)
 	return card
 end
 
---=============================================================================
--- WINDOW
---=============================================================================
-
 function NovaUI:CreateWindow(config)
 	config = config or {}
 	local theme = NovaUI.Theme
@@ -962,68 +766,32 @@ function NovaUI:CreateWindow(config)
 		NovaUI:SetReducedEffects(config.ReducedEffects)
 	end
 
-	-- A light blueish-white tint (nudged from theme.Text toward theme.Accent)
-	-- for the active tab's icon image specifically — plain theme.Text read as
-	-- flat white next to the new blue icon glow, this ties the two together.
 	local activeIconColor = theme.Text:Lerp(theme.Accent, 0.2)
 
-	local size = config.Size or UDim2.fromOffset(600, 480)
-	local railWidth = config.TabWidth or 64
+	local viewport = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(1440, 900)
+	if viewport.X < 360 or viewport.Y < 240 then viewport = Vector2.new(1440, 900) end
+	local size = config.Size or UDim2.fromOffset(math.min(1280, viewport.X - 48), math.min(760, viewport.Y - 64))
+	local railWidth = config.TabWidth or 220
 	local topBarHeight = 64
 
-	-- The search / config-selector pills in the top bar. Both still fill the
-	-- row's height; only their width is set here (the selector's popup is
-	-- pinned to the same number so it stays flush with the pill). Trimmed
-	-- to pay for the autoload button — the ribbon is three 36px buttons wide
-	-- now, and search gives up more of it than the selector because its
-	-- placeholder is one short word while the selector shows real config
-	-- names that truncate.
-	local searchPillWidth = 104
-	local selectorPillWidth = 122
+	local searchPillWidth = 220
+	local selectorPillWidth = 174
 
-	-- Every connection this window makes to a GLOBAL, persistent service
-	-- (UserInputService, Workspace) gets tracked here and explicitly
-	-- disconnected in Window:Destroy(). Destroying the ScreenGui only
-	-- auto-disconnects listeners on the destroyed instances themselves —
-	-- it does nothing for connections on services that outlive the GUI, so
-	-- without this, every drag handle / slider / colorpicker / keybind's
-	-- UserInputService.InputChanged connection would keep firing (and
-	-- keeping the whole destroyed UI tree alive in memory) forever, for as
-	-- long as the game runs — the classic Roblox leak pattern, and worse
-	-- the more times a window gets created/destroyed in one session.
 	local AllConnections = {}
 	local function Track(conn)
 		table.insert(AllConnections, conn)
 		return conn
 	end
 
-	-- config.Parent lets you place the window's ScreenGui somewhere other
-	-- than the default (the LocalPlayer's PlayerGui) — e.g. CoreGui (via a
-	-- privileged script), a specific PlayerGui subfolder, or a testing
-	-- environment that doesn't have a normal PlayerGui at all.
 	local ScreenGui = New("ScreenGui", {
 		Name = "NovaUI",
 		ResetOnSpawn = false,
-		-- Spans the whole screen, including the strip behind Roblox's own
-		-- top bar — the notification gui above already does the same, and
-		-- without it the window's coordinate space is offset from the
-		-- actual screen by that inset.
 		IgnoreGuiInset = true,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		DisplayOrder = 100,
 		Parent = config.Parent or ScreenParent(),
 	})
 
-	-- A zero-cost, non-interactive frame that simply FILLS ScreenGui, kept
-	-- around only to be measured. AbsolutePosition is reported in Roblox's own
-	-- screen space, which stops lining up with the space a ScreenGui's children
-	-- are positioned in the moment IgnoreGuiInset is on: the gui's top-left and
-	-- that space's origin are a top-bar inset apart, so feeding a raw
-	-- AbsolutePosition straight back into a Position (tooltips, popups, the
-	-- window's own resize math) lands everything an inset off. Reading the
-	-- origin off a frame that fills the gui, rather than hardcoding
-	-- GuiService:GetGuiInset(), keeps that conversion correct whichever way
-	-- IgnoreGuiInset is set and on devices that reserve no inset at all.
 	local GuiOrigin = New("Frame", {
 		Name = "GuiOrigin",
 		BackgroundTransparency = 1,
@@ -1033,13 +801,10 @@ function NovaUI:CreateWindow(config)
 		Parent = ScreenGui,
 	})
 
-	--- Converts an AbsolutePosition into the offset a child of ScreenGui (or of
-	--- anything else that fills it, like Overlay) needs to sit at that spot.
 	local function ToGuiSpace(absolutePosition)
 		return absolutePosition - GuiOrigin.AbsolutePosition
 	end
 
-	-- Tooltip helper (needs ScreenGui + theme, so it's scoped per-window).
 	local function AttachTooltip(button, text)
 		local tooltip = New("TextLabel", {
 			Text = text,
@@ -1069,8 +834,6 @@ function NovaUI:CreateWindow(config)
 		return tooltip
 	end
 
-	-- Small reusable icon-button constructor (icon w/ text fallback,
-	-- hover tint, hover-scale pop). Used for chrome + sidebar buttons.
 	local function MakeIconButton(parent, sizePx, iconName, fallbackText, iconSize)
 		local btn = New("TextButton", {
 			Text = "",
@@ -1101,19 +864,7 @@ function NovaUI:CreateWindow(config)
 		}
 	end
 
-	-- macOS-style traffic-light chrome button: a small solid-color dot
-	-- (always visible, not transparent-until-hover like MakeIconButton)
-	-- that reveals a darker glyph on hover — same feel as the real
-	-- close/minimize/zoom dots. `color` is also what the hover glyph is
-	-- derived from (darkened), so it always reads against its own dot.
-	--
-	-- The dot you see is 14px, but what actually takes the click is the
-	-- invisible box around it: a 14px target is fine for a mouse and far
-	-- under what a fingertip can reliably land on, and these three sit
-	-- shoulder to shoulder, so on a phone a near-miss on Minimize closes
-	-- the window instead. The hit box is the full height of the top bar
-	-- (that row is otherwise dead space) and TRAFFIC_HIT_WIDTH across.
-	local TRAFFIC_DOT_SIZE = 14
+	local TRAFFIC_DOT_SIZE = 24
 	local TRAFFIC_HIT_WIDTH = 30
 	local function MakeTrafficLightButton(parent, color, iconName, fallbackGlyph, iconSize)
 		local hit = New("TextButton", {
@@ -1123,37 +874,30 @@ function NovaUI:CreateWindow(config)
 			Size = UDim2.new(0, TRAFFIC_HIT_WIDTH, 1, 0),
 			Parent = parent,
 		})
-		-- A TextLabel, not a TextButton: a nested button would eat the clicks
-		-- that land on the dot itself (the common case) and never pass them
-		-- up to the hit box. SetButtonIcon only needs .Text/.TextColor3, both
-		-- of which a label has, and the fallback glyph renders the same.
 		local dot = New("TextLabel", {
 			Text = "",
-			BackgroundColor3 = color,
+			BackgroundColor3 = theme.ElementBackground,
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.new(0.5, 0, 0.5, 0),
 			Size = UDim2.new(0, TRAFFIC_DOT_SIZE, 0, TRAFFIC_DOT_SIZE),
 			Parent = hit,
 		})
-		Pill(dot)
-		local glyphColor = color:Lerp(Color3.new(0, 0, 0), 0.55)
+		Round(dot, 6)
+		local glyphColor = theme.SubText
 		local state = { handle = SetButtonIcon(dot, iconName, fallbackGlyph, iconSize or 9, glyphColor) }
-		state.handle.Instance[state.handle.Property] = 1
-		-- Hover is driven off the hit box, so the glyph reveals as soon as the
-		-- cursor is anywhere in the target — which doubles as the cue for how
-		-- big that target actually is.
+		state.handle.Instance[state.handle.Property] = 0
 		hit.MouseEnter:Connect(function()
 			Tween(state.handle.Instance, { [state.handle.Property] = 0 }, 0.1)
 		end)
 		hit.MouseLeave:Connect(function()
-			Tween(state.handle.Instance, { [state.handle.Property] = 1 }, 0.1)
+			Tween(state.handle.Instance, { [state.handle.Property] = 0.25 }, 0.1)
 		end)
 		return {
 			Instance = hit,
 			Dot = dot,
 			SetIcon = function(name, fb)
 				state.handle = SetButtonIcon(dot, name, fb, iconSize or 9, glyphColor)
-				state.handle.Instance[state.handle.Property] = 1
+				state.handle.Instance[state.handle.Property] = 0
 			end,
 			SetColor = function(c)
 				state.handle.SetColor(c)
@@ -1161,10 +905,6 @@ function NovaUI:CreateWindow(config)
 		}
 	end
 
-	-- Main is the frame that gets positioned/dragged/resized directly.
-	-- UIShadow is a UI modifier (like UICorner/UIStroke, both also attached
-	-- directly below) — it isn't clipped by Main's own ClipsDescendants and
-	-- doesn't need a separate un-clipped wrapper frame.
 	local Main = New("Frame", {
 		Name = "Main",
 		BackgroundColor3 = theme.Background,
@@ -1175,29 +915,16 @@ function NovaUI:CreateWindow(config)
 		ClipsDescendants = true,
 		Parent = ScreenGui,
 	})
-	-- Bottom-right squared off since that's where the resize grip sits.
-	Round(Main, 14, { BottomRight = 0 })
+	Round(Main, 16)
 	Stroke(Main, theme.Border, 1)
-	-- Normal soft/blurred shadow, same as everywhere else in the file — the
-	-- earlier flat/hard-edged Blur = 0 version here was working around what
-	-- turned out to be a different bug entirely (fullscreen's ViewportSize
-	-- tracking wasn't debounced, see Window:ToggleFullscreen), not the blur
-	-- itself, so there's no reason for Main's shadow to look different from
-	-- every dialog/popup/notification shadow anymore.
 	local Shadow = AddShadow(Main, { Transparency = 1, OffsetY = 10, Blur = 24 })
-	local mainScale = New("UIScale", { Scale = 0.97, Parent = Main })
 
-	-- Opening animation: a restrained fade + tiny scale-up (no bounce).
 	do
 		local targetAcrylicTransparency = config.Acrylic and 0.06 or 0
-		Tween(mainScale, { Scale = 1 }, 0.18, EASE_SOFT)
 		Tween(Main, { BackgroundTransparency = targetAcrylicTransparency }, 0.2)
 		Tween(Shadow, { Transparency = 0.15 }, 0.25)
 	end
 
-	-- Bottom-right resize grip. High ZIndex so it's always grabbable above
-	-- whatever's scrolled underneath it; the actual drag wiring happens
-	-- further below (it needs the Window table's minimized/fullscreen state).
 	local ResizeHandle = New("TextButton", {
 		Text = "",
 		BackgroundColor3 = theme.ElementBackground,
@@ -1242,12 +969,6 @@ function NovaUI:CreateWindow(config)
 		Tween(resizeIcon, { [resizeIconColorProp] = theme.SubText }, 0.1)
 	end)
 
-	--=========================================================================
-	-- OVERLAY (dropdown lists / colorpickers / config selector render here,
-	-- as a ScreenGui-level sibling of Main, so they're always on top and
-	-- never occluded by other rows — and they auto-close on outside click)
-	--=========================================================================
-
 	local Overlay = New("Frame", {
 		Name = "Overlay",
 		BackgroundTransparency = 1,
@@ -1257,8 +978,6 @@ function NovaUI:CreateWindow(config)
 	})
 	local PopupCatcher = New("TextButton", {
 		Text = "",
-		-- Transparent by default; OpenPopup dims it into a scrim behind
-		-- centered (touch-sized) popups only.
 		BackgroundColor3 = Color3.new(0, 0, 0),
 		BackgroundTransparency = 1,
 		AutoButtonColor = false,
@@ -1284,19 +1003,6 @@ function NovaUI:CreateWindow(config)
 	end
 	PopupCatcher.MouseButton1Click:Connect(ClosePopup)
 
-	--- Opens `popup` (reparented into Overlay) anchored just below
-	--- `anchorButton`. opts.Align = "left" (default) or "right" is only a
-	--- *preference* — if the preferred side would overflow/underflow the
-	--- screen (e.g. a swatch near the left edge with Align="right"), this
-	--- automatically falls back to whichever side actually fits, instead of
-	--- hard-clamping to the screen edge and stranding the popup far from
-	--- the button that opened it.
-	--- opts.Gap = pixel gap below the anchor (default 6).
-	--- opts.Center ignores the anchor entirely and centers the popup on
-	--- screen, behind a dim scrim — for touch-sized panels, which are too
-	--- big to hang off their button without running past a screen edge.
-	--- opts.OnClose = fn() called once, when this popup is closed (either
-	--- by clicking an option, or by clicking outside it).
 	local function OpenPopup(popup, anchorButton, opts)
 		opts = opts or {}
 		if currentPopup == popup then
@@ -1340,7 +1046,11 @@ function NovaUI:CreateWindow(config)
 			end
 			x = math.clamp(x, 4, math.max(4, screenSize.X - popupWidth - 4))
 
-			popup.Position = UDim2.fromOffset(x, anchorPos.Y + anchorSize.Y + (opts.Gap or 6))
+			local y = anchorPos.Y + anchorSize.Y + (opts.Gap or 6)
+			local popupHeight = popup.Size.Y.Offset
+			if y + popupHeight > screenSize.Y - 4 then y = anchorPos.Y - popupHeight - (opts.Gap or 6) end
+			y = math.clamp(y, 4, math.max(4, screenSize.Y - popupHeight - 4))
+			popup.Position = UDim2.fromOffset(x, y)
 		end
 		popup.Visible = true
 		if opts.GrowHeight then
@@ -1349,10 +1059,6 @@ function NovaUI:CreateWindow(config)
 			PopIn(popup)
 		end
 		PopupCatcher.Visible = true
-		-- A centered popup floats with nothing tying it to what opened it, so it
-		-- gets a scrim behind it to read as a modal panel. Anchored popups leave
-		-- the catcher fully transparent — they already read as attached to their
-		-- button, and dimming the whole window behind a 6-row list is overkill.
 		PopupCatcher.BackgroundTransparency = 1
 		if opts.Center then
 			Tween(PopupCatcher, { BackgroundTransparency = 0.5 }, 0.12)
@@ -1362,36 +1068,27 @@ function NovaUI:CreateWindow(config)
 		currentPopupOnClose = opts.OnClose
 	end
 
-	--=========================================================================
-	-- SIDEBAR (icon rail, full height)
-	--=========================================================================
-
 	local Sidebar = New("Frame", {
 		Name = "Sidebar",
 		BackgroundColor3 = theme.SidebarBackground or theme.SecondaryBackground,
 		Size = UDim2.new(0, railWidth, 1, 0),
 		Parent = Main,
 	})
-	-- Only the outer (left) corners are rounded — the right two are square
-	-- since ContentArea sits flush against them, matching Main's shape
-	-- instead of poking a rounded corner out into it.
 	Round(Sidebar, 14, { TopRight = 0, BottomRight = 0 })
 
 	local LogoBox = New("Frame", {
+		Name = "Brand",
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, 56),
+		Size = UDim2.new(1, 0, 0, 76),
 		Parent = Sidebar,
 	})
 	local logoMark = New("Frame", {
-		BackgroundTransparency = 1,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(0.5, 0, 0.5, 0),
+		BackgroundColor3 = theme.Accent:Lerp(theme.SidebarBackground, 0.86),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 20, 0.5, 0),
 		Size = UDim2.new(0, 40, 0, 40),
 		Parent = LogoBox,
 	})
-	-- config.Logo swaps the default "first letter of the title" mark for a
-	-- real image — an icon name from the icon table, a raw asset id, or an
-	-- rbxassetid://... string all work (same as any other icon input).
 	local logoIcon = config.Logo and GetIcon(config.Logo, 32)
 	if logoIcon then
 		logoIcon.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1409,11 +1106,23 @@ function NovaUI:CreateWindow(config)
 		})
 	end
 
+	Round(logoMark, 10)
+	Stroke(logoMark, theme.Border)
+	New("TextLabel", {Name = "BrandTitle", Text = config.Title or "Nova", Font = Enum.Font.GothamBold,
+		TextSize = 18, TextColor3 = theme.Text, TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(72, 21), Size = UDim2.new(1, -84, 0, 22), TextTruncate = Enum.TextTruncate.AtEnd, Parent = LogoBox})
+	New("TextLabel", {Text = config.BrandSubtitle or "INTERFACE LIBRARY", Font = Enum.Font.GothamMedium,
+		TextSize = 9, TextColor3 = theme.SubText, TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(73, 46), Size = UDim2.new(1, -85, 0, 12), Parent = LogoBox})
+	New("TextLabel", {Text = "M E N U", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = theme.SubText,
+		BackgroundTransparency = 1, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(24, 88),
+		Size = UDim2.new(1, -48, 0, 16), Parent = Sidebar})
+	New("Frame", {BackgroundColor3 = theme.Divider, BorderSizePixel = 0, Position = UDim2.new(1, -1, 0, 0), Size = UDim2.new(0, 1, 1, 0), Parent = Sidebar})
 	local TabRailScroll = New("ScrollingFrame", {
 		Name = "TabRail",
 		BackgroundTransparency = 1,
-		Position = UDim2.new(0, 0, 0, 56),
-		Size = UDim2.new(1, 0, 1, -132),
+		Position = UDim2.new(0, 0, 0, 116),
+		Size = UDim2.new(1, 0, 1, -190),
 		CanvasSize = UDim2.new(0, 0, 0, 0),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		ScrollBarThickness = 0,
@@ -1427,9 +1136,6 @@ function NovaUI:CreateWindow(config)
 		Parent = TabRailScroll,
 	})
 
-	-- Populated below, after Window:AddSidebarButton exists — either with
-	-- config.SidebarButtons (fully customizable icon buttons) or a
-	-- sensible default (collapse + profile).
 	local SidebarFooter = New("Frame", {
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0.5, 1),
@@ -1443,10 +1149,17 @@ function NovaUI:CreateWindow(config)
 		Padding = UDim.new(0, 10),
 		Parent = SidebarFooter,
 	})
-
-	--=========================================================================
-	-- CONTENT AREA (search/selector bar + tab pages)
-	--=========================================================================
+	local Profile = New("Frame", {Name = "Profile", BackgroundTransparency = 1, Size = UDim2.new(1, -40, 0, 58), LayoutOrder = 0, Parent = SidebarFooter})
+	New("Frame", {BorderSizePixel = 0, BackgroundColor3 = theme.Divider, Size = UDim2.new(1, 0, 0, 1), Parent = Profile})
+	local ProfileBadge = New("TextLabel", {Text = (config.UserName or (LocalPlayer and LocalPlayer.DisplayName) or "N"):sub(1, 1):upper(),
+		Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = theme.Accent, BackgroundColor3 = theme.ElementBackground,
+		Position = UDim2.fromOffset(0, 16), Size = UDim2.fromOffset(32, 32), Parent = Profile})
+	Pill(ProfileBadge)
+	New("TextLabel", {Text = config.UserName or (LocalPlayer and LocalPlayer.DisplayName) or "Nova User", Font = Enum.Font.GothamMedium,
+		TextSize = 12, TextColor3 = theme.Text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+		BackgroundTransparency = 1, Position = UDim2.fromOffset(43, 16), Size = UDim2.new(1, -43, 0, 16), Parent = Profile})
+	New("TextLabel", {Text = config.UserSubtitle or "Local session", Font = Enum.Font.Gotham, TextSize = 10, TextColor3 = theme.SubText,
+		TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 1, Position = UDim2.fromOffset(43, 34), Size = UDim2.new(1, -43, 0, 14), Parent = Profile})
 
 	local ContentArea = New("Frame", {
 		Name = "Content",
@@ -1462,21 +1175,15 @@ function NovaUI:CreateWindow(config)
 		Size = UDim2.new(1, 0, 0, topBarHeight),
 		Parent = ContentArea,
 	})
+	local ConfigDivider = New("Frame", {Name = "ConfigDivider", BackgroundColor3 = theme.Divider, BorderSizePixel = 0,
+		Position = UDim2.fromOffset(0, topBarHeight - 1), Size = UDim2.new(1, 0, 0, 1), Parent = ContentArea})
 	Pad(ContentTopBar, 20, 14, 20, 14)
 
-	-- Minimized mode shrinks the BAR, not what's on it: the top bar's own
-	-- height and its vertical padding come down together so the collapsed
-	-- window can be shorter, while every label/icon inside keeps the size it
-	-- has when expanded (the row just centers them in whatever height it's
-	-- given). The logo is the tallest thing in there at 32px, so the collapsed
-	-- padding is what's left of minimizedHeight around it.
-	-- 470 is the collapsed content measured out with a little slack: 40 bar
-	-- padding + ~300 info row (32 logo + 120 capped title + two stat pills +
-	-- gaps) + 10 + 90 chrome. TopBarSpacer eats whatever is left over.
 	local minimizedWidth = 470
 	local minimizedHeight = 48
 	local topBarPadding = ContentTopBar:FindFirstChildOfClass("UIPadding")
 	local function SetTopBarCollapsed(collapsed, animate)
+		ConfigDivider.Visible = not collapsed
 		local height = collapsed and minimizedHeight or topBarHeight
 		local padY = collapsed and 8 or 14
 		if animate then
@@ -1493,12 +1200,6 @@ function NovaUI:CreateWindow(config)
 		end
 	end
 
-	-- Only the sidebar logo is a drag handle. Deliberately NOT any part of
-	-- the content top bar — Roblox's InputBegan/InputChanged fire on every
-	-- GuiObject under the cursor regardless of Z-order, so an invisible
-	-- "drag background" behind the search box/selector/chrome buttons would
-	-- still fight with their clicks (this is why minimize/fullscreen/search
-	-- could misbehave before).
 	local TopBarRow = New("Frame", {
 		BackgroundTransparency = 1,
 		Size = UDim2.new(1, 0, 1, 0),
@@ -1512,8 +1213,6 @@ function NovaUI:CreateWindow(config)
 		Parent = TopBarRow,
 	})
 
-	-- Search pill (narrower than before — the save-config and autoload
-	-- buttons next to the selector need the room in the top bar).
 	local SearchPill = New("Frame", {
 		BackgroundColor3 = theme.ElementBackground,
 		Size = UDim2.new(0, searchPillWidth, 1, 0),
@@ -1564,7 +1263,6 @@ function NovaUI:CreateWindow(config)
 		Parent = SearchPill,
 	})
 
-	-- Config selector pill (folder icon + label + chevron)
 	local SelectorPill = New("TextButton", {
 		Text = "",
 		BackgroundColor3 = theme.ElementBackground,
@@ -1614,8 +1312,6 @@ function NovaUI:CreateWindow(config)
 		LayoutOrder = 2,
 		Parent = SelectorPill,
 	})
-	-- Kept as a variable so it can be flipped 180° open/closed, same as the
-	-- regular Dropdown's chevron.
 	local selectorChevron
 	do
 		local icon = GetIcon("chevron-down", 12)
@@ -1638,11 +1334,6 @@ function NovaUI:CreateWindow(config)
 		end
 	end
 
-	-- Fixed-width, opaque popup list (rendered in Overlay, never occluded).
-	-- Height is capped and scrollable (same pattern as the regular
-	-- Dropdown's listFrame/listScroll) instead of AutomaticSize.Y with no
-	-- ceiling — unbounded growth meant a long enough config list would just
-	-- keep pushing the popup taller forever, off the bottom of the screen.
 	local SelectorList = New("Frame", {
 		BackgroundColor3 = theme.PopupBackground,
 		BackgroundTransparency = 0,
@@ -1666,20 +1357,17 @@ function NovaUI:CreateWindow(config)
 	Pad(SelectorListScroll, 4)
 	New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2), Parent = SelectorListScroll })
 
-	-- Create-config button, right next to the selector pill. Opens a
-	-- Dialog with a name input; wired up (with Window:Dialog + ConfigSelector)
-	-- further below once those exist.
 	local CreateConfigBtn = New("TextButton", {
 		Text = "",
 		BackgroundColor3 = theme.ElementBackground,
-		Size = UDim2.new(0, 36, 1, 0),
+		Size = UDim2.new(0, 76, 1, 0),
 		AutoButtonColor = false,
 		LayoutOrder = 3,
 		ZIndex = 2,
 		Parent = TopBarRow,
 	})
 	Round(CreateConfigBtn, 8)
-	local createConfigIconHandle = SetButtonIcon(CreateConfigBtn, "file-down", "+", 14, theme.SubText)
+	local createConfigIconHandle = SetButtonIcon(CreateConfigBtn, nil, "+  New", 13, theme.SubText)
 	AddHoverFade(CreateConfigBtn, 0, 0.4)
 	CreateConfigBtn.MouseEnter:Connect(function()
 		createConfigIconHandle.SetColor(theme.Text)
@@ -1689,20 +1377,17 @@ function NovaUI:CreateWindow(config)
 	end)
 	AttachTooltip(CreateConfigBtn, "Create Config")
 
-	-- Save-config button, right next to it. Fires
-	-- Window.ConfigSelector:OnSave(fn) — hook up your own SaveManager-style
-	-- persistence logic there.
 	local SaveConfigBtn = New("TextButton", {
 		Text = "",
 		BackgroundColor3 = theme.ElementBackground,
-		Size = UDim2.new(0, 36, 1, 0),
+		Size = UDim2.new(0, 70, 1, 0),
 		AutoButtonColor = false,
 		LayoutOrder = 4,
 		ZIndex = 2,
 		Parent = TopBarRow,
 	})
 	Round(SaveConfigBtn, 8)
-	local saveIconHandle = SetButtonIcon(SaveConfigBtn, "save", "\226\134\147", 14, theme.SubText)
+	local saveIconHandle = SetButtonIcon(SaveConfigBtn, nil, "Save", 13, theme.SubText)
 	AddHoverFade(SaveConfigBtn, 0, 0.4)
 	SaveConfigBtn.MouseEnter:Connect(function()
 		saveIconHandle.SetColor(theme.Text)
@@ -1712,28 +1397,18 @@ function NovaUI:CreateWindow(config)
 	end)
 	AttachTooltip(SaveConfigBtn, "Save Config")
 
-	-- Autoload button, right next to it. Marks the CURRENTLY SELECTED config
-	-- as the one to load on startup (click again to clear it) and fires
-	-- Window.ConfigSelector:OnAutoLoad(fn) — the library has no file access of
-	-- its own, so persisting that choice is the consumer's job, same as saving
-	-- the config itself. Its icon lights up in the accent color whenever the
-	-- selected config IS the autoload one; the list marks it too.
 	local AutoLoadBtn = New("TextButton", {
 		Text = "",
 		BackgroundColor3 = theme.ElementBackground,
-		Size = UDim2.new(0, 36, 1, 0),
+		Size = UDim2.new(0, 100, 1, 0),
 		AutoButtonColor = false,
 		LayoutOrder = 5,
 		ZIndex = 2,
 		Parent = TopBarRow,
 	})
 	Round(AutoLoadBtn, 8)
-	local autoLoadIconHandle = SetButtonIcon(AutoLoadBtn, "zap", "\226\154\161", 14, theme.SubText)
+	local autoLoadIconHandle = SetButtonIcon(AutoLoadBtn, nil, "Autoload", 13, theme.SubText)
 	AddHoverFade(AutoLoadBtn, 0, 0.4)
-	-- Unlike the two buttons above, the resting color isn't a constant — it's
-	-- whatever the autoload state says it should be, so hover has to fall back
-	-- to that instead of hardcoding SubText. RefreshAutoLoadUI (further down,
-	-- with the ConfigSelector) owns this variable.
 	local autoLoadRestColor = theme.SubText
 	AutoLoadBtn.MouseEnter:Connect(function()
 		autoLoadIconHandle.SetColor(autoLoadRestColor == theme.SubText and theme.Text or theme.AccentHover)
@@ -1743,13 +1418,6 @@ function NovaUI:CreateWindow(config)
 	end)
 	local autoLoadTooltip = AttachTooltip(AutoLoadBtn, "Set as Autoload")
 
-	-- Flexible spacer — eats whatever room is left in the top bar so
-	-- ChromeRow below always ends up flush against the right edge instead
-	-- of just trailing whatever's to its left. It's also a second drag
-	-- handle (besides the sidebar logo): a plain background area with
-	-- nothing interactive on it, so dragging from anywhere in that gap
-	-- doesn't fight any button/textbox clicks, while giving a much bigger
-	-- grab area than the small logo alone.
 	local TopBarSpacer = New("Frame", {
 		BackgroundTransparency = 1,
 		Size = UDim2.new(0, 0, 1, 0),
@@ -1758,14 +1426,6 @@ function NovaUI:CreateWindow(config)
 	})
 	New("UIFlexItem", { FlexMode = Enum.UIFlexMode.Fill, Parent = TopBarSpacer })
 
-	-- Window chrome (minimize/fullscreen/close) — small, flush to the right
-	-- edge of the top bar (TopBarSpacer above pushes it there). Styled as
-	-- macOS-style traffic-light dots: always-visible solid color, with a
-	-- dark glyph that only shows up on hover (same as real macOS window
-	-- controls) instead of MakeIconButton's transparent-until-hover look.
-	-- Sized off the hit boxes, which are wider than the dots and butt right
-	-- up against each other — the gap between the dots is what's left over
-	-- inside them, so the layout adds no padding of its own on top.
 	local ChromeRow = New("Frame", {
 		BackgroundTransparency = 1,
 		Size = UDim2.new(0, TRAFFIC_HIT_WIDTH * 3, 1, 0),
@@ -1794,19 +1454,6 @@ function NovaUI:CreateWindow(config)
 	CloseBtn.Instance.LayoutOrder = 3
 	AttachTooltip(CloseBtn.Instance, "Close")
 
-	--=========================================================================
-	-- MINIMIZED-MODE INFO ROW — swapped in for the search/config cluster
-	-- (SearchPill/SelectorPill/CreateConfigBtn/SaveConfigBtn/AutoLoadBtn) while minimized;
-	-- ChromeRow stays put either way. Shows the logo, the window title, and
-	-- live FPS/ping stats. Same LayoutOrder (1) as SearchPill so it takes
-	-- over that slot in TopBarRow's layout.
-	--=========================================================================
-
-	-- AutomaticSize.X (not a full-width 1,0 Size) is deliberate: this row
-	-- sits in the same UIListLayout as TopBarSpacer/ChromeRow, so it has to
-	-- size to its own content and let the spacer eat the rest of the row —
-	-- otherwise it claims the whole TopBarRow width and shoves ChromeRow
-	-- (minimize/fullscreen/close) off-screen to the right.
 	local MinimizedInfoRow = New("Frame", {
 		BackgroundTransparency = 1,
 		AutomaticSize = Enum.AutomaticSize.X,
@@ -1860,15 +1507,8 @@ function NovaUI:CreateWindow(config)
 		LayoutOrder = 2,
 		Parent = MinimizedInfoRow,
 	})
-	-- Caps how far AutomaticSize.X can grow this label, which is what makes a
-	-- fixed minimizedWidth safe: without it a long window title widens the
-	-- info row without limit (TextTruncate never kicks in while the label is
-	-- free to grow), eating the spacer and shoving the chrome buttons off the
-	-- right edge of the collapsed bar. With the cap it truncates instead.
 	New("UISizeConstraint", { MaxSize = Vector2.new(120, math.huge), Parent = MinimizedTitle })
 
-	-- One "icon + value" stat pill (FPS/ping). Returns the value label so
-	-- the tracker below can update its Text.
 	local function CreateStat(layoutOrder, iconName, fallbackGlyph)
 		local holder = New("Frame", {
 			BackgroundTransparency = 1,
@@ -1920,9 +1560,6 @@ function NovaUI:CreateWindow(config)
 	local FpsLabel = CreateStat(3, "gauge", "!")
 	local PingLabel = CreateStat(4, "wifi", "~")
 
-	-- FPS/ping only get measured while the info row is actually visible
-	-- (minimized) — connected on minimize, disconnected on restore, so
-	-- there's no always-on Heartbeat cost the rest of the time.
 	local statsConn
 	local statsFrameCount, statsAccum = 0, 0
 	local function StartStatsTracking()
@@ -1949,21 +1586,42 @@ function NovaUI:CreateWindow(config)
 
 	MakeDraggable(Main, LogoBox, Track)
 	MakeDraggable(Main, TopBarSpacer, Track)
-	-- The minimized-mode info row (logo/title/stats) replaces TopBarSpacer's
-	-- normal drag area while minimized, so it needs its own drag handle too.
 	MakeDraggable(Main, MinimizedInfoRow, Track)
 
+	local PageHeader = New("Frame", {Name = "PageHeader", BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, topBarHeight), Size = UDim2.new(1, 0, 0, 84), Parent = ContentArea})
+	local PageTitle = New("TextLabel", {Name = "Title", Text = "", Font = Enum.Font.GothamBold,
+		TextSize = 20, TextColor3 = theme.Text, TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(28, 12), Size = UDim2.new(1, -300, 0, 28), Parent = PageHeader})
+	local PageDescription = New("TextLabel", {Name = "Description", Text = "", Font = Enum.Font.Gotham,
+		TextSize = 12, TextColor3 = theme.SubText, TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 1,
+		TextTruncate = Enum.TextTruncate.AtEnd, Position = UDim2.fromOffset(28, 43),
+		Size = UDim2.new(1, -300, 0, 20), Parent = PageHeader})
+	SearchPill.Parent = PageHeader
+	SearchPill.AnchorPoint = Vector2.new(1, 0.5)
+	SearchPill.Position = UDim2.new(1, -28, 0.5, -2)
+	SearchPill.Size = UDim2.fromOffset(searchPillWidth, 38)
+	SearchPill.Name = "Search"
+	SearchBox.Name = "SearchBox"
+	Stroke(SearchPill, theme.Border, 1, 0.25)
+	New("Frame", {BackgroundColor3 = theme.Divider, BorderSizePixel = 0,
+		Position = UDim2.new(0, 0, 1, -1), Size = UDim2.new(1, 0, 0, 1), Parent = PageHeader})
+	local ConfigCaption = New("TextLabel", {Text = "CONFIG", Font = Enum.Font.GothamBold, TextSize = 10,
+		TextColor3 = theme.SubText, BackgroundTransparency = 1, Size = UDim2.new(0, 56, 1, 0), LayoutOrder = 0, Parent = TopBarRow})
+	SelectorPill.Name = "ConfigSelector"
+	CreateConfigBtn.Name = "CreateConfig"
+	SaveConfigBtn.Name = "SaveConfig"
+	AutoLoadBtn.Name = "AutoloadConfig"
+	for _, item in ipairs({SelectorPill, CreateConfigBtn, SaveConfigBtn, AutoLoadBtn}) do
+		Stroke(item, theme.Border, 1, 0.4)
+	end
 	local PagesContainer = New("Frame", {
 		Name = "Pages",
 		BackgroundTransparency = 1,
-		Position = UDim2.new(0, 0, 0, topBarHeight),
-		Size = UDim2.new(1, 0, 1, -topBarHeight),
+		Position = UDim2.new(0, 0, 0, topBarHeight + 84),
+		Size = UDim2.new(1, 0, 1, -(topBarHeight + 84)),
 		Parent = ContentArea,
 	})
-
-	--=========================================================================
-	-- WINDOW OBJECT
-	--=========================================================================
 
 	local Window = {}
 	Window._tabs = {}
@@ -1978,18 +1636,13 @@ function NovaUI:CreateWindow(config)
 	Window._activeTabIndex = 1
 	Window._searchRows = {} -- { {Instance, TitleLower, TabIndex}, ... }
 	Window._searchText = ""
+	function Window:ClosePopups() ClosePopup() end
 
 	CloseBtn.Instance.MouseButton1Click:Connect(function()
-		-- Set ConfirmClose = false in CreateWindow({...}) to skip this and
-		-- close immediately instead.
 		if config.ConfirmClose == false then
 			Window:Destroy()
 			return
 		end
-		-- The confirm dialog is sized/positioned relative to Main, so on the
-		-- collapsed minimized bar it'd render cramped into that tiny strip.
-		-- Restore first — the dialog then opens on (and grows along with)
-		-- the full-size window instead.
 		if Window._minimized then
 			Window:ToggleMinimize()
 		end
@@ -2002,11 +1655,6 @@ function NovaUI:CreateWindow(config)
 					Title = "Close",
 					Main = true,
 					Callback = function()
-						-- Window:Destroy() is instant (no fade of its own) and
-						-- tears down the whole ScreenGui, which is also still
-						-- mid-fade-out as this dialog closes — destroying
-						-- immediately would cut that fade short and yank the
-						-- confirm dialog itself off-screen. Let it finish first.
 						task.delay(0.13, function()
 							Window:Destroy()
 						end)
@@ -2024,15 +1672,6 @@ function NovaUI:CreateWindow(config)
 		Window:ToggleFullscreen()
 	end)
 
-	-- Resizes Main to `newSize` while keeping its current ON-SCREEN top-left
-	-- corner fixed, instead of its center (which is what plain AnchorPoint
-	-- (0.5,0.5) resizing does by default). Minimize only changes Height —
-	-- anchoring by center means restoring after you'd dragged the minimized
-	-- bar up near the top of the screen grows the window mostly upward,
-	-- pushing it (and its only drag handles) off the top of the screen
-	-- entirely. Anchoring by top-left instead means it only ever grows
-	-- downward/rightward from wherever it currently is, so it can't strand
-	-- itself off-screen like that.
 	local function ResizeKeepingTopLeft(newSize, duration, style)
 		local screenSize = ScreenGui.AbsoluteSize
 		local topLeft = ToGuiSpace(Main.AbsolutePosition)
@@ -2049,13 +1688,7 @@ function NovaUI:CreateWindow(config)
 		end
 	end
 
-	-- Gap between the top of the screen and the parked minimized bar.
 	local minimizedTopMargin = 8
-	-- Minimizing docks the collapsed bar to the top-center of the screen
-	-- instead of leaving it wherever the full window happened to sit: a 470x48
-	-- strip abandoned mid-screen reads as debris, and the top edge is where a
-	-- collapsed toolbar is looked for. Returns the position it settled on, so
-	-- restoring can tell "never touched" from "deliberately dragged elsewhere".
 	local function ResizeToTopCenter(newSize, duration, style)
 		local screenSize = ScreenGui.AbsoluteSize
 		local newHeight = newSize.Y.Scale * screenSize.Y + newSize.Y.Offset
@@ -2069,12 +1702,6 @@ function NovaUI:CreateWindow(config)
 		return newPosition
 	end
 
-	-- Puts Main back to the size AND position it had before it was minimized,
-	-- now that minimizing moves it. The saved position is only trustworthy
-	-- while the collapsed bar is still parked where minimize put it — if it's
-	-- been dragged since, that's a deliberate "leave it here", so grow from
-	-- where it sits now instead (top-left-anchored, so a bar left near the top
-	-- edge can't strand the restored window off-screen).
 	local function RestoreFromMinimized(duration, style)
 		local restoreSize = Window._preMinimizeSize or Window._fullSize
 		local parked = Window._minimizedPosition ~= nil and Main.Position == Window._minimizedPosition
@@ -2091,16 +1718,10 @@ function NovaUI:CreateWindow(config)
 		end
 	end
 
-	--- Minimizing only collapses the sidebar + page content — the top bar
-	--- (search, config selector, save button, minimize/fullscreen/close) stays
-	--- visible and usable the whole time, it just fills the collapsed window.
 	function Window:ToggleMinimize()
 		self._minimized = not self._minimized
 		if self._minimized then
 			if self._fullscreen then
-				-- Can't be both at once — drop out of fullscreen first (and
-				-- stop its live viewport tracking, which would otherwise
-				-- keep fighting the minimized size) before collapsing.
 				self._fullscreen = false
 				if self._viewportConn then
 					self._viewportConn:Disconnect()
@@ -2116,23 +1737,17 @@ function NovaUI:CreateWindow(config)
 				end
 				FullscreenBtn.SetIcon("maximize-2", "\226\150\162")
 				self._preMinimizeSize = self._savedSize or self._fullSize
-				-- Restoring should land where the window actually lived, not
-				-- where fullscreen had parked it.
 				self._preMinimizePosition = self._savedPosition or Main.Position
 			else
 				self._preMinimizeSize = Main.Size
 				self._preMinimizePosition = Main.Position
 			end
-			-- Never wider than the window itself was — on a narrow window the
-			-- nominal collapsed width would otherwise make minimizing it
-			-- bigger.
-			-- Docked to the top-center of the screen rather than left where
-			-- the full window was; _minimizedPosition is what restoring
-			-- checks against to tell an untouched bar from a dragged one.
 			self._minimizedPosition = ResizeToTopCenter(UDim2.new(0, math.min(self._fullSize.X.Offset, minimizedWidth), 0, minimizedHeight), 0.18, EASE_SOFT)
 			SetTopBarCollapsed(true, true)
 			Sidebar.Visible = false
 			PagesContainer.Visible = false
+			PageHeader.Visible = false
+			ConfigCaption.Visible = false
 			ResizeHandle.Visible = false
 			Tween(ContentArea, { Position = UDim2.new(0, 0, 0, 0), Size = UDim2.new(1, 0, 1, 0) }, 0.18, EASE_SOFT)
 			SearchPill.Visible = false
@@ -2146,6 +1761,8 @@ function NovaUI:CreateWindow(config)
 			SetTopBarCollapsed(false, true)
 			Sidebar.Visible = true
 			PagesContainer.Visible = true
+			PageHeader.Visible = true
+			ConfigCaption.Visible = true
 			ResizeHandle.Visible = true
 			Tween(ContentArea, { Position = UDim2.new(0, railWidth, 0, 0), Size = UDim2.new(1, -railWidth, 1, 0) }, 0.18, EASE_SOFT)
 			RestoreFromMinimized(0.18, EASE_SOFT)
@@ -2159,14 +1776,6 @@ function NovaUI:CreateWindow(config)
 		end
 	end
 
-	-- Applies the current camera viewport to Main while fullscreen is on.
-	-- Also re-centers Main every time (Position keeps its dragged offset
-	-- otherwise, from AnchorPoint(0.5,0.5) + that offset — so if you'd
-	-- dragged the window off-center before going fullscreen, it would grow
-	-- around that off-center point instead of actually covering the screen).
-	-- `animate` tweens the very first application; live updates afterward
-	-- (screen/resolution changes while already fullscreen) snap instantly so
-	-- they can't fight an in-flight tween.
 	local function ApplyViewportSize(window, animate)
 		local camera = Workspace.CurrentCamera
 		local viewport = (camera and camera.ViewportSize) or Vector2.new(1280, 720)
@@ -2195,26 +1804,16 @@ function NovaUI:CreateWindow(config)
 		end
 	end
 
-	--- Toggles the window to fill (most of) the screen and back, tracking the
-	--- camera's ViewportSize live so Main is resized whenever the game
-	--- window/resolution changes while fullscreen is active. Swaps the chrome
-	--- icon between "maximize-2" and "shrink".
 	function Window:ToggleFullscreen()
 		self._fullscreen = not self._fullscreen
 		if self._fullscreen then
-			-- Minimized hides Sidebar/PagesContainer and shrinks ContentArea
-			-- to fill the collapsed bar. Going fullscreen from that state
-			-- must restore those first, or the window just grows huge with
-			-- no pages/sidebar visible inside it. Restore to the size it
-			-- had before minimizing (not the tiny minimized bar) once
-			-- fullscreen is exited too.
 			if self._minimized then
 				self._minimized = false
-				-- Instant, like everything else on this path — it's all about
-				-- to be overwritten by the fullscreen tween anyway.
 				SetTopBarCollapsed(false, false)
 				Sidebar.Visible = true
 				PagesContainer.Visible = true
+			PageHeader.Visible = true
+			ConfigCaption.Visible = true
 				ContentArea.Position = UDim2.new(0, railWidth, 0, 0)
 				ContentArea.Size = UDim2.new(1, -railWidth, 1, 0)
 				SearchPill.Visible = true
@@ -2224,15 +1823,6 @@ function NovaUI:CreateWindow(config)
 				AutoLoadBtn.Visible = true
 				MinimizedInfoRow.Visible = false
 				StopStatsTracking()
-				-- Main.Position right now is wherever the MINIMIZED bar is
-				-- docked (safe for a short bar sitting at the top of the
-				-- screen) — pairing that raw position with the tall
-				-- pre-minimize size below is exactly what pushed the
-				-- restored window's top half off-screen. Go through the same
-				-- restore path minimize uses instead (instantly, invisibly —
-				-- it's about to be overwritten by the fullscreen tween
-				-- anyway), so the position we save is actually safe for that
-				-- size.
 				RestoreFromMinimized()
 			end
 			self._savedSize = self._preMinimizeSize or Main.Size
@@ -2240,15 +1830,6 @@ function NovaUI:CreateWindow(config)
 			ResizeHandle.Visible = false
 			ApplyViewportSize(self, true)
 
-			-- ViewportSize can fire far more than once per rendered frame while
-			-- the Roblox APPLICATION window is actively being dragged/resized —
-			-- this (not shadow blur) was the actual fullscreen lag: applying
-			-- ApplyViewportSize synchronously on every single one of those
-			-- events, each cascading a Main.Size change through ContentArea ->
-			-- every tab's page -> RelayoutColumns. A dirty flag consumed once
-			-- per Heartbeat coalesces any number of same-frame events down to
-			-- one apply, without losing live tracking — it still updates every
-			-- rendered frame during the drag, just not more than that.
 			local function HookCamera(camera)
 				if not camera then return end
 				local dirty = false
@@ -2288,13 +1869,8 @@ function NovaUI:CreateWindow(config)
 		end
 	end
 
-	-- Drag-to-resize from the bottom-right corner grip. Disabled while
-	-- minimized/fullscreen since Main's size is programmatically driven
-	-- then; resizing updates Window._fullSize so minimize/restore and
-	-- exiting fullscreen both snap back to whatever size you last set by
-	-- hand rather than the original CreateWindow size.
 	do
-		local MIN_WIDTH = math.max(360, railWidth + 220)
+			local MIN_WIDTH = math.max(360, railWidth + 760)
 		local MIN_HEIGHT = math.max(280, topBarHeight + 160)
 		local resizing = false
 		local resizeStart, startSize, resizeTopLeft
@@ -2305,8 +1881,6 @@ function NovaUI:CreateWindow(config)
 				resizing = true
 				resizeStart = input.Position
 				startSize = Main.Size
-				-- Captured once, at drag start, and never moved for the rest
-				-- of the drag — see the comment below for why.
 				resizeTopLeft = ToGuiSpace(Main.AbsolutePosition)
 			end
 		end))
@@ -2314,23 +1888,11 @@ function NovaUI:CreateWindow(config)
 			if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 				local delta = input.Position - resizeStart
 				local screenSize = ScreenGui.AbsoluteSize
-				-- Also clamped so the window can't be dragged wider/taller
-				-- than what actually fits between its (fixed) top-left
-				-- corner and the edge of the screen.
 				local maxWidth = math.max(MIN_WIDTH, screenSize.X - resizeTopLeft.X)
 				local maxHeight = math.max(MIN_HEIGHT, screenSize.Y - resizeTopLeft.Y)
 				local newWidth = math.clamp(startSize.X.Offset + delta.X, MIN_WIDTH, maxWidth)
 				local newHeight = math.clamp(startSize.Y.Offset + delta.Y, MIN_HEIGHT, maxHeight)
 
-				-- Main is AnchorPoint(0.5,0.5), so just setting Size here
-				-- (like before) would grow/shrink the window symmetrically
-				-- around its CENTER — meaning the top edge (where minimize/
-				-- fullscreen/close live) moves too, even though you're
-				-- dragging the BOTTOM-RIGHT corner. That's what could push
-				-- those buttons off the top of the screen. Recomputing
-				-- Position every step to keep resizeTopLeft fixed makes this
-				-- behave like a normal corner-drag resize instead: only the
-				-- bottom-right corner moves.
 				local newCenterX = resizeTopLeft.X + newWidth / 2
 				local newCenterY = resizeTopLeft.Y + newHeight / 2
 				local newSize = UDim2.new(startSize.X.Scale, newWidth, startSize.Y.Scale, newHeight)
@@ -2346,12 +1908,6 @@ function NovaUI:CreateWindow(config)
 		end))
 	end
 
-	-- Window.MinimizeKey / Window.ToggleKey are live, mutable fields (unlike
-	-- the `config` table they're seeded from) — assign a new Enum.KeyCode.*
-	-- (keyboard) or Enum.UserInputType.MouseButton1/2/3 (mouse) item to
-	-- either one at any time, e.g. from a Keybind's ChangedCallback, and the
-	-- InputBegan handlers below (which read the field fresh on every input,
-	-- not a captured snapshot) pick it up immediately. Set to nil to unbind.
 	Window.MinimizeKey = config.MinimizeKey
 	Window.ToggleKey = config.ToggleKey
 
@@ -2362,10 +1918,6 @@ function NovaUI:CreateWindow(config)
 		end
 	end))
 
-	--- Window:SetVisible(visible) / Window:ToggleVisible() — fully shows or
-	--- hides the whole GUI (ScreenGui.Enabled), distinct from ToggleMinimize
-	--- (which just collapses to the top bar, keeping it visible/usable).
-	--- Bound to `Window.ToggleKey` below if given.
 	function Window:SetVisible(visible)
 		ScreenGui.Enabled = visible
 	end
@@ -2382,11 +1934,6 @@ function NovaUI:CreateWindow(config)
 	function Window:Destroy()
 		ClosePopup()
 		DisconnectFullscreenTracking(self)
-		-- Destroying ScreenGui cleans up every connection made ON an
-		-- instance inside it, but NOT connections made on global services
-		-- (UserInputService, Workspace) — those live independently of the
-		-- GUI and would otherwise keep firing (and keep this whole UI tree
-		-- referenced/alive) forever. See AllConnections/Track above.
 		for _, conn in ipairs(AllConnections) do
 			if conn.Connected then
 				conn:Disconnect()
@@ -2396,10 +1943,6 @@ function NovaUI:CreateWindow(config)
 		ScreenGui:Destroy()
 	end
 
-	--- Window:AddSidebarButton({ Icon, FallbackText, Tooltip, Callback, Order })
-	--- Appends a fully customizable icon button to the bottom of the
-	--- sidebar rail. Pass `config.SidebarButtons` (an array of these same
-	--- tables) to CreateWindow to replace the default set entirely.
 	function Window:AddSidebarButton(cfg)
 		cfg = cfg or {}
 		local btnHandle = MakeIconButton(SidebarFooter, 32, cfg.Icon, cfg.FallbackText or "\226\128\162", 15)
@@ -2445,27 +1988,8 @@ function NovaUI:CreateWindow(config)
 		ApplySearchFilter()
 	end)
 
-	--- Signals on the top config selector. All three fire whether the action
-	--- came from a ribbon button or from a Window.Configs:* call, and the
-	--- built-in file store (CONFIG FILE STORE, further down) is itself just
-	--- another listener on them — so hooking these to do your own extra work
-	--- on top (cloud sync, logging, a different folder layout) still works,
-	--- and nothing here has to be wired up for the buttons to function.
-	--- Window.ConfigSelector:OnChanged(fn) fires with the selected name; the
-	--- store's own listener is what reads that config off disk and applies it.
-	--- Window.ConfigSelector:OnSave(fn) fires with (name, jsonString) when the
-	--- save-config button is clicked — jsonString is every registered
-	--- option's current value, JSON-encoded (Colorpicker values included).
-	--- Window.ConfigSelector:OnCreate(fn) fires with (name, jsonString) whenever
-	--- a new config is made via the "Create Config" ribbon button's dialog —
-	--- jsonString is the same current-state export OnSave gets.
-	--- Window.ConfigSelector:OnAutoLoad(fn) fires with the name marked to load
-	--- on startup (or nil when it's cleared), from the "Set as Autoload" ribbon
-	--- button or from SetAutoLoad. The store persists that mark itself and
-	--- replays it on the next launch; this signal is only for reacting to it.
 	local ConfigSelector = {
 		Value = SelectorLabel.Text,
-		-- Name of the config marked to load on startup, or nil for none.
 		AutoLoad = nil,
 		Changed = Signal.new(),
 		Save = Signal.new(),
@@ -2476,25 +2000,15 @@ function NovaUI:CreateWindow(config)
 	}
 	function ConfigSelector:OnChanged(fn) ConfigSelector.Changed:Connect(fn) end
 	function ConfigSelector:OnSave(fn) ConfigSelector.Save:Connect(fn) end
-	--- ConfigSelector:OnCreate(fn) — fires with (name, jsonString) whenever a
-	--- config is made via the "Create Config" ribbon button's dialog.
 	function ConfigSelector:OnCreate(fn) ConfigSelector.Created:Connect(fn) end
-	--- ConfigSelector:OnAutoLoad(fn) — fires with the newly marked name, or nil
-	--- when the mark is cleared. Persist it here.
 	function ConfigSelector:OnAutoLoad(fn) ConfigSelector.AutoLoadChanged:Connect(fn) end
 
-	-- Repaints everything that reflects the autoload choice: the AUTO tag on
-	-- the marked row in the list, and the ribbon button, whose icon color and
-	-- tooltip describe what clicking it would do to the CURRENTLY SELECTED
-	-- config — set it, or clear it when that's already the marked one.
 	local function RefreshAutoLoadUI()
 		for name, btn in pairs(ConfigSelector._buttons) do
 			local marked = ConfigSelector.AutoLoad == name
 			local tag = btn:FindFirstChild("AutoTag")
 			local nameLabel = btn:FindFirstChild("NameLabel")
 			if tag then tag.Visible = marked end
-			-- Give the tag its own room rather than letting a long config name
-			-- run underneath it; unmarked rows keep the full width.
 			if nameLabel then nameLabel.Size = UDim2.new(1, marked and -50 or -16, 1, 0) end
 		end
 		local selectedIsMarked = ConfigSelector.AutoLoad ~= nil and ConfigSelector.AutoLoad == ConfigSelector.Value
@@ -2506,17 +2020,10 @@ function NovaUI:CreateWindow(config)
 	function ConfigSelector:SetValue(name)
 		ConfigSelector.Value = name
 		SelectorLabel.Text = name
-		-- The ribbon button describes the selected config, so it has to be
-		-- repainted whenever the selection moves, not just when the mark does.
 		RefreshAutoLoadUI()
 		ConfigSelector.Changed:Fire(name)
 	end
 
-	--- ConfigSelector:SetAutoLoad(name, silent) — marks `name` as the config to
-	--- load on startup; nil (or "") clears the mark. Fires OnAutoLoad so the
-	--- choice can be written out, unless `silent` is true — pass that when
-	--- you're restoring an already-saved choice at startup and don't want it
-	--- written straight back.
 	function ConfigSelector:SetAutoLoad(name, silent)
 		if name == "" then name = nil end
 		ConfigSelector.AutoLoad = name
@@ -2526,12 +2033,8 @@ function NovaUI:CreateWindow(config)
 		end
 	end
 
-	--- ConfigSelector:GetAutoLoad() — the name marked for autoload, or nil.
 	function ConfigSelector:GetAutoLoad() return ConfigSelector.AutoLoad end
 
-	-- Drops the mark when the config it points at is gone (deleted, or absent
-	-- from a rebuilt list) — a mark aimed at a config that no longer exists
-	-- would just fail to load on the next startup, silently.
 	local function PruneAutoLoad()
 		if ConfigSelector.AutoLoad ~= nil and not ConfigSelector._buttons[ConfigSelector.AutoLoad] then
 			ConfigSelector:SetAutoLoad(nil)
@@ -2540,8 +2043,6 @@ function NovaUI:CreateWindow(config)
 		end
 	end
 
-	-- Caps how tall SelectorList grows before it scrolls instead — same
-	-- 6-row cap as the regular Dropdown.
 	local function RefreshSelectorListSize()
 		SelectorList.Size = UDim2.new(0, selectorPillWidth, 0, math.min(#ConfigSelector._options, 6) * 28 + 8)
 	end
@@ -2557,10 +2058,6 @@ function NovaUI:CreateWindow(config)
 			Parent = SelectorListScroll,
 		})
 		Round(btn, 4)
-		-- The name is its own label rather than the button's built-in Text (same
-		-- reason AddDropdown splits them): the AUTO tag needs a fixed spot at the
-		-- row's right edge, and UIPadding would move the tag along with the text
-		-- instead of leaving it put.
 		New("TextLabel", {
 			Name = "NameLabel",
 			Text = name,
@@ -2597,9 +2094,6 @@ function NovaUI:CreateWindow(config)
 		return btn
 	end
 
-	--- ConfigSelector:SetOptions(list) — replaces the whole list. An autoload
-	--- mark pointing at a name that isn't in the new list is cleared (and
-	--- OnAutoLoad fires with nil), same as deleting that config.
 	function ConfigSelector:SetOptions(list)
 		for _, btn in pairs(ConfigSelector._buttons) do btn:Destroy() end
 		ConfigSelector._buttons = {}
@@ -2612,20 +2106,14 @@ function NovaUI:CreateWindow(config)
 		PruneAutoLoad()
 	end
 
-	--- ConfigSelector:AddOption(name) — appends one entry to the dropdown
-	--- without rebuilding the whole list (keeps existing entries/order).
 	function ConfigSelector:AddOption(name)
 		if ConfigSelector._buttons[name] then return end
 		table.insert(ConfigSelector._options, name)
 		ConfigSelector._buttons[name] = CreateOptionButton(name, #ConfigSelector._options)
 		RefreshSelectorListSize()
-		-- A re-added name can re-adopt a mark that was restored before the list
-		-- was populated, so the new row picks up its tag right away.
 		RefreshAutoLoadUI()
 	end
 
-	--- ConfigSelector:RemoveOption(name) — removes one entry from the dropdown.
-	--- Clears the autoload mark if it pointed at that entry.
 	function ConfigSelector:RemoveOption(name)
 		local btn = ConfigSelector._buttons[name]
 		if not btn then return end
@@ -2641,33 +2129,9 @@ function NovaUI:CreateWindow(config)
 		PruneAutoLoad()
 	end
 
-	--=====================================================================
-	-- CONFIG FILE STORE
-	--=====================================================================
-	-- The window reads and writes its own config files now, so a consumer
-	-- doesn't have to bolt a SaveManager onto the ConfigSelector signals to
-	-- get working Save/Create/select-to-load buttons. It still goes THROUGH
-	-- those signals rather than around them, so anything already listening
-	-- on OnSave/OnCreate/OnChanged keeps firing exactly as before — the
-	-- store is just one more listener that happens to ship with the library.
-	--
-	-- CreateWindow options:
-	--   Folder            brand root folder (default "NovaUI"); configs land
-	--                     in <Folder>/Games/<GameId> so two games can't
-	--                     collide on a config name.
-	--   ConfigFolder      the whole path, overriding the above outright.
-	--   ConfigExtension   file extension, default ".txt".
-	--   ConfigNotifications  false to silence the saved/loaded/created toasts
-	--                     without turning the store itself off.
-	-- Autoload is never automatic on its own: only the calling script knows
-	-- when it has finished adding options. Call Window:StartAutoLoad() once
-	-- the UI is fully built.
 	local configFolder = config.ConfigFolder
 		or ((config.Folder or "NovaUI") .. "/Games/" .. tostring(game.GameId))
 	local configExtension = config.ConfigExtension or ".txt"
-	-- The autoload marker lives in the same folder as the configs, so it has
-	-- to be skipped when listing them or it'd show up as a selectable config
-	-- named "_autoload".
 	local AUTOLOAD_NAME = "_autoload"
 
 	local function ConfigPath(name)
@@ -2688,8 +2152,6 @@ function NovaUI:CreateWindow(config)
 				end
 			end
 		end
-		-- listfiles hands them back in whatever order the filesystem feels like,
-		-- which reshuffles the dropdown between sessions for no reason.
 		table.sort(names)
 		return names
 	end
@@ -2711,7 +2173,6 @@ function NovaUI:CreateWindow(config)
 			if FS.DeleteFile and FS.IsFile(path) then
 				return (pcall(FS.DeleteFile, path))
 			end
-			-- No delfile on this executor: an empty marker reads as "none" too.
 			return (pcall(FS.WriteFile, path, ""))
 		end
 		if not EnsureFolder(configFolder) then return false end
@@ -2724,42 +2185,29 @@ function NovaUI:CreateWindow(config)
 		NovaUI:Notify({ Title = notifyTitle, Content = text, Duration = 5 })
 	end
 
-	--- Window.Configs — the file store behind the config buttons.
-	--- .Folder is where it reads and writes; .Ready is false when the host
-	--- has no filesystem at all (Studio), in which case every method below
-	--- is a no-op returning false and the UI falls back to signals only.
 	local Configs = {
 		Folder = configFolder,
 		Extension = configExtension,
 		Ready = FS.Ready,
-		-- name -> json for configs written this session. Reading straight back
-		-- what was just written is pointless, and briefly stale on some
-		-- executors, so the in-memory copy wins.
+		StorageMode = StorageMode,
 		_recent = {},
 		_autoLoaded = false,
 	}
 
-	--- Window.Configs:List() — config names currently on disk.
 	function Configs:List() return ListConfigNames() end
-	--- Window.Configs:Path(name) — where that config's file lives.
 	function Configs:Path(name) return ConfigPath(name) end
-	--- Window.Configs:Exists(name) — true if it's saved (or written this
-	--- session and not yet flushed).
 	function Configs:Exists(name)
 		if name == nil or name == "" then return false end
 		if Configs._recent[name] ~= nil then return true end
 		return FS.Ready and FS.IsFile(ConfigPath(name)) or false
 	end
 
-	--- Window.Configs:Refresh() — re-reads the folder into the selector's
-	--- list. Returns the names it found.
 	function Configs:Refresh()
 		local names = ListConfigNames()
 		ConfigSelector:SetOptions(names)
 		return names
 	end
 
-	-- Raw write, no toast and no signal — the notifying paths below call it.
 	local function WriteConfig(name, json)
 		if not FS.Ready or name == nil or name == "" then return false end
 		if not EnsureFolder(configFolder) then return false end
@@ -2768,8 +2216,6 @@ function NovaUI:CreateWindow(config)
 		return ok
 	end
 
-	--- Window.Configs:Load(name) — reads that config and pushes it into every
-	--- registered option. This is what selecting a name in the dropdown does.
 	function Configs:Load(name)
 		if name == nil or name == "" then return false end
 		local json = Configs._recent[name]
@@ -2785,9 +2231,6 @@ function NovaUI:CreateWindow(config)
 		return true
 	end
 
-	--- Window.Configs:Save(name) — writes the CURRENT state of every option
-	--- over that config (defaults to the selected one). Goes through the same
-	--- signal the save button fires, so any OnSave listener still runs.
 	function Configs:Save(name)
 		name = name or ConfigSelector.Value
 		if name == nil or name == "" then return false end
@@ -2795,8 +2238,6 @@ function NovaUI:CreateWindow(config)
 		return true
 	end
 
-	--- Window.Configs:Create(name) — same as the Create Config button: writes
-	--- current state to a new file and adds it to the list.
 	function Configs:Create(name)
 		if name == nil or name == "" then return false end
 		ConfigSelector:AddOption(name)
@@ -2805,10 +2246,6 @@ function NovaUI:CreateWindow(config)
 		return true
 	end
 
-	--- Window.Configs:Delete(name) — removes the file and drops it from the
-	--- list (which also clears the autoload mark if it pointed there).
-	--- Needs delfile; returns false on an executor without it rather than
-	--- leaving a half-deleted config behind.
 	function Configs:Delete(name)
 		if not FS.Ready or name == nil or name == "" then return false end
 		if type(FS.DeleteFile) ~= "function" then return false end
@@ -2820,32 +2257,20 @@ function NovaUI:CreateWindow(config)
 		return true
 	end
 
-	--- Window.Configs:AutoLoad() — the implementation behind
-	--- Window:StartAutoLoad(). Selects and loads whichever config is marked
-	--- for autoload, if it still exists. Never runs on its own: only the
-	--- calling script knows when every option has been registered, and a
-	--- config applied before that lands on nothing. Loads once per window;
-	--- later calls return false.
 	function Configs:AutoLoad()
 		if Configs._autoLoaded then return false end
 		local name = ReadAutoLoadName()
 		if name == nil then return false end
 		if not Configs:Exists(name) then
-			-- Marked config was deleted out from under the marker.
 			ConfigSelector:SetAutoLoad(nil)
 			return false
 		end
 		Configs._autoLoaded = true
 		ConfigSelector:SetAutoLoad(name, true)
-		-- SetValue fires Changed, and the handler below is what actually reads
-		-- and applies the file — the exact path picking it from the list takes.
 		ConfigSelector:SetValue(name)
 		return true
 	end
 
-	-- The store listening on its own signals (rather than the buttons calling
-	-- it directly) is what keeps a consumer's existing OnSave/OnCreate/
-	-- OnChanged handlers working untouched.
 	ConfigSelector:OnChanged(function(name)
 		Configs:Load(name)
 	end)
@@ -2864,13 +2289,9 @@ function NovaUI:CreateWindow(config)
 	end)
 
 	if FS.Ready then
-		-- Read the marker BEFORE filling the list: SetOptions prunes a mark
-		-- pointing at a name it can't find, and at this point the selector
-		-- doesn't know about one yet.
 		local marked = ReadAutoLoadName()
 		Configs:Refresh()
 		if marked ~= nil then
-			-- Silent — restoring a saved mark shouldn't write it straight back.
 			ConfigSelector:SetAutoLoad(marked, true)
 		end
 	end
@@ -2883,8 +2304,6 @@ function NovaUI:CreateWindow(config)
 				Tween(selectorChevron, { Rotation = 0 }, 0.12)
 			end,
 		})
-		-- OpenPopup toggles closed (and Visible=false) if this was already
-		-- open; only flip to 180° when it actually just opened.
 		if SelectorList.Visible then
 			Tween(selectorChevron, { Rotation = 180 }, 0.12)
 		end
@@ -2894,8 +2313,6 @@ function NovaUI:CreateWindow(config)
 	end)
 
 	AutoLoadBtn.MouseButton1Click:Connect(function()
-		-- One button both sets and clears, toggling the mark on whatever is
-		-- currently selected.
 		local selected = ConfigSelector.Value
 		if selected == nil or selected == "" then return end
 		if ConfigSelector.AutoLoad == selected then
@@ -2928,30 +2345,10 @@ function NovaUI:CreateWindow(config)
 	Window.Configs = Configs
 	Window.Search = { Box = SearchBox }
 
-	--- Window:LoadConfig(data) — data is a JSON string (or plain table) of
-	--- id -> value pairs, as produced by NovaUI:ExportConfigJSON()/ExportConfig().
-	--- Applies each value to the matching live section item. Your own script
-	--- decides how the JSON gets here (read from file, DataStore, etc.) — the
-	--- library only handles turning it back into on-screen state.
 	function Window:LoadConfig(data)
 		return NovaUI:ApplyConfig(data)
 	end
 
-	--- Window:StartAutoLoad() — call this ONCE, as the last line of your setup,
-	--- after every tab/section/element has been added. If a config is marked
-	--- for autoload it gets selected and applied; returns true when one was
-	--- loaded, false when there's no mark, the marked config is gone, or
-	--- autoload already ran for this window.
-	---
-	--- It's a separate call rather than something CreateWindow does for you
-	--- because a config can only reach options that already exist, and options
-	--- register as you build — at CreateWindow time there are none, so an
-	--- automatic pass would quietly apply a config to nothing. Only the script
-	--- doing the building knows when that's finished.
-	---
-	---   local Window = NovaUI:CreateWindow({ Title = "...", Folder = "Overflow" })
-	---   -- ... build every tab and section ...
-	---   Window:StartAutoLoad()
 	function Window:StartAutoLoad()
 		return Configs:AutoLoad()
 	end
@@ -2959,6 +2356,14 @@ function NovaUI:CreateWindow(config)
 	function Window:SelectTab(index)
 		local tab = self._tabs[index]
 		if not tab then return end
+		PageTitle.Text = tab.Title
+		PageDescription.Text = tab.Description
+		if not NovaUI.ReducedEffects then
+			PageTitle.TextTransparency = 1
+			PageDescription.TextTransparency = 1
+			Tween(PageTitle, {TextTransparency = 0}, 0.12, EASE)
+			Tween(PageDescription, {TextTransparency = 0}, 0.16, EASE)
+		end
 		ClosePopup()
 		local previousIndex = self._activeTabIndex
 		self._activeTabIndex = index
@@ -2966,15 +2371,16 @@ function NovaUI:CreateWindow(config)
 			local active = (i == index)
 			if active then
 				t._page.Visible = true
-				t._page.Position = UDim2.new(0, (i > previousIndex) and 8 or -8, 0, 0)
+				t._page.Position = UDim2.new(0, NovaUI.ReducedEffects and 0 or ((i > previousIndex) and 4 or -4), 0, 0)
 				Tween(t._page, { Position = UDim2.new(0, 0, 0, 0) }, 0.14, EASE)
 			elseif i ~= index then
 				t._page.Visible = false
 			end
-			Tween(t._button, { BackgroundTransparency = active and 0.8 or 1 }, 0.1)
+			Tween(t._button, { BackgroundTransparency = active and 0.8 or 1 }, 0.12, EASE)
 			if t._icon then
 				Tween(t._icon, { ImageColor3 = active and activeIconColor or theme.SubText }, 0.1)
 			end
+			if t._navLabel then t._navLabel.TextColor3 = active and theme.Text or theme.SubText end
 			if t._fallbackLabel then
 				t._fallbackLabel.TextColor3 = active and theme.Text or theme.SubText
 			end
@@ -2987,222 +2393,110 @@ function NovaUI:CreateWindow(config)
 		ApplySearchFilter()
 	end
 
-	--- Window:Dialog({ Title, Content, Input = { Placeholder, Default },
-	---   Buttons = {{Title, Callback, Main}, ...} })
-	--- If Input is given, every button's Callback is invoked with the
-	--- input box's current text as its only argument (nil otherwise).
-	--- Buttons are the flat/ghost secondary style by default; set
-	--- Main = true on (usually) one button to render it as the primary
-	--- solid-accent action instead — same fill as Section:AddButton.
-	--- Only one dialog can be open at a time: calling this while one is
-	--- already up (e.g. a button that opens one got double-clicked before
-	--- the first click's dialog finished appearing) immediately closes the
-	--- old one — no fade, it's being superseded, not dismissed — instead of
-	--- stacking a second overlay on top of it.
 	local currentDialogOverlay = nil
 	function Window:Dialog(cfg)
-		if currentDialogOverlay then
-			currentDialogOverlay:Destroy()
-			currentDialogOverlay = nil
-		end
-
-		local overlay = New("Frame", {
-			BackgroundColor3 = Color3.new(0, 0, 0),
-			BackgroundTransparency = 1,
-			Size = UDim2.new(1, 0, 1, 0),
-			ZIndex = 50,
-			Parent = Main,
+		cfg = cfg or {}
+		ClosePopup()
+		if currentDialogOverlay then currentDialogOverlay:Destroy() end
+		local overlay = New("TextButton", {
+			Name = "DialogOverlay", Text = "", AutoButtonColor = false, Active = true, Modal = true,
+			BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1,
+			Size = UDim2.fromScale(1, 1), ZIndex = 1000, Parent = ScreenGui,
 		})
 		currentDialogOverlay = overlay
-		-- Main's own ClipsDescendants only clips children to its rectangular
-		-- bounds, not its rounded shape — UICorner isn't respected by
-		-- ClipsDescendants at all. Without its own matching UICorner here,
-		-- this full-size dim overlay's square corners show right through
-		-- past Main's rounded ones. Same radius/per-corner setup as Main
-		-- itself so it lines up exactly.
-		Round(overlay, 14, { BottomRight = 0 })
-		Tween(overlay, { BackgroundTransparency = 0.5 }, 0.15)
-
+		Tween(overlay, {BackgroundTransparency = 0.4}, 0.16)
 		local box = New("Frame", {
-			BackgroundColor3 = theme.SecondaryBackground,
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.new(0.5, 0, 0.5, 0),
-			Size = UDim2.new(0, 320, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			ZIndex = 51,
-			Parent = overlay,
+			Name = "DialogCard", BackgroundColor3 = theme.SecondaryBackground,
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(math.min(440, math.max(280, GuiOrigin.AbsoluteSize.X - 40)), 0),
+			AutomaticSize = Enum.AutomaticSize.Y, Parent = overlay,
 		})
-		Round(box, 10)
+		Round(box, 16)
 		Stroke(box, theme.Border, 1)
-		Pad(box, 20)
-		-- Blur kept modest on purpose: box's own corner radius is small
-		-- (Round()'s CORNER_SCALE shrinks it to a handful of pixels), and a
-		-- blur radius much bigger than that washes the shadow's shape out
-		-- into what reads as a plain soft rectangle with sharp corners,
-		-- since the blur spread overwhelms the tiny corner curve entirely.
-		local boxShadow = AddShadow(box, { Transparency = 0.3, OffsetY = 10, Blur = 16 })
-		local boxScale = New("UIScale", { Scale = 0.96, Parent = box })
-		Tween(boxScale, { Scale = 1 }, 0.15, EASE_SOFT)
-
-		New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 14), Parent = box })
-
-		New("TextLabel", {
-			Text = cfg.Title or "Dialog",
-			Font = Enum.Font.GothamBold,
-			TextSize = 17,
-			TextColor3 = theme.Text,
-			BackgroundTransparency = 1,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Size = UDim2.new(1, 0, 0, 22),
-			ZIndex = 51,
-			LayoutOrder = 1,
-			Parent = box,
-		})
-
-		if cfg.Content then
-			New("TextLabel", {
-				Text = cfg.Content,
-				Font = Enum.Font.Gotham,
-				TextSize = 13,
-				LineHeight = 1.25,
-				TextColor3 = theme.SubText,
-				TextWrapped = true,
-				BackgroundTransparency = 1,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Size = UDim2.new(1, 0, 0, 0),
-				AutomaticSize = Enum.AutomaticSize.Y,
-				ZIndex = 51,
-				LayoutOrder = 2,
-				Parent = box,
-			})
+		Pad(box, 24)
+		local shadow = AddShadow(box, {Transparency = 0.25, OffsetY = 16, Blur = 32})
+		if not NovaUI.ReducedEffects then box.Position = UDim2.new(0.5, 0, 0.5, 4) end
+		Tween(box, {Position = UDim2.fromScale(0.5, 0.5)}, 0.16, EASE)
+		New("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 18), Parent = box})
+		local closing = false
+		local handle = {Instance = overlay}
+		function handle:Close()
+			if closing then return end
+			closing = true
+			if currentDialogOverlay == overlay then currentDialogOverlay = nil end
+			Tween(overlay, {BackgroundTransparency = 1}, 0.12)
+			Tween(box, {BackgroundTransparency = 1}, 0.12)
+			Tween(shadow, {Transparency = 1}, 0.12)
+			FadeOutTree(box, 0.12)
+			task.delay(0.13, function() overlay:Destroy() end)
 		end
-
-		-- cfg.Input = { Placeholder, Default } adds a text field to the
-		-- dialog; every button's Callback is then called with the box's
-		-- current text as its argument (nil if there's no Input at all).
+		local header = New("Frame", {Name = "Header", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = 1, Parent = box})
+		New("TextLabel", {Text = cfg.Title or "Dialog", Font = Enum.Font.GothamBold, TextSize = 20,
+			TextColor3 = theme.Text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+			BackgroundTransparency = 1, Size = UDim2.new(1, -42, 1, 0), Parent = header})
+		local close = New("TextButton", {Name = "Close", Text = "✕", Font = Enum.Font.Gotham, TextColor3 = theme.SubText,
+			AutoButtonColor = false, BackgroundColor3 = theme.ElementBackground, Size = UDim2.fromOffset(30, 30),
+			AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Parent = header})
+		Round(close, 8)
+		close.MouseButton1Click:Connect(function() handle:Close() end)
+		close.MouseEnter:Connect(function() Tween(close, {BackgroundColor3 = theme.ElementBackgroundHover, TextColor3 = theme.Text}, 0.1) end)
+		close.MouseLeave:Connect(function() Tween(close, {BackgroundColor3 = theme.ElementBackground, TextColor3 = theme.SubText}, 0.1) end)
+		if cfg.Content then
+			New("TextLabel", {Name = "Content", Text = cfg.Content, Font = Enum.Font.Gotham, TextSize = 14, LineHeight = 1.3,
+				TextColor3 = theme.SubText, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+				BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2, Parent = box})
+		end
 		local inputBox
 		if cfg.Input then
-			local inputCfg = cfg.Input
-			local inputHolder = New("Frame", {
-				BackgroundColor3 = theme.ElementBackgroundHover,
-				Size = UDim2.new(1, 0, 0, 32),
-				ZIndex = 51,
-				LayoutOrder = 3,
-				Parent = box,
-			})
-			Round(inputHolder, 6)
-			Pad(inputHolder, 10, 0, 10, 0)
-			local inputStroke = Stroke(inputHolder, theme.Accent, 1.5, 1)
-			inputBox = New("TextBox", {
-				Text = inputCfg.Default or "",
-				PlaceholderText = inputCfg.Placeholder or "",
-				Font = Enum.Font.Gotham,
-				TextSize = 13,
-				TextColor3 = theme.Text,
-				PlaceholderColor3 = theme.SubText,
-				ClearTextOnFocus = false,
-				BackgroundTransparency = 1,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				Size = UDim2.new(1, 0, 1, 0),
-				ZIndex = 51,
-				Parent = inputHolder,
-			})
-			inputBox.Focused:Connect(function()
-				Tween(inputStroke, { Transparency = 0 }, 0.12)
-			end)
-			inputBox.FocusLost:Connect(function()
-				Tween(inputStroke, { Transparency = 1 }, 0.15)
-			end)
-			task.defer(function()
-				inputBox:CaptureFocus()
-			end)
+			local holder = New("Frame", {Name = "InputField", BackgroundColor3 = theme.Background,
+				Size = UDim2.new(1, 0, 0, 44), LayoutOrder = 3, Parent = box})
+			Round(holder, 9) Pad(holder, 14, 0, 14, 0)
+			local ring = Stroke(holder, theme.Border, 1)
+			inputBox = New("TextBox", {Name = "Input", Text = cfg.Input.Default or "", PlaceholderText = cfg.Input.Placeholder or "Enter a value",
+				Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = theme.Text, PlaceholderColor3 = theme.SubText,
+				ClearTextOnFocus = false, BackgroundTransparency = 1, TextXAlignment = Enum.TextXAlignment.Left,
+				Size = UDim2.fromScale(1, 1), Parent = holder})
+			inputBox.Focused:Connect(function() Tween(ring, {Color = theme.Accent}, 0.12) end)
+			inputBox.FocusLost:Connect(function() Tween(ring, {Color = theme.Border}, 0.12) end)
+			task.defer(function() if inputBox.Parent then inputBox:CaptureFocus() end end)
 		end
-
-		local btnRow = New("Frame", {
-			BackgroundTransparency = 1,
-			Size = UDim2.new(1, 0, 0, 32),
-			ZIndex = 51,
-			LayoutOrder = 4,
-			Parent = box,
-		})
-		New("UIListLayout", {
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			FillDirection = Enum.FillDirection.Horizontal,
-			HorizontalAlignment = Enum.HorizontalAlignment.Right,
-			Padding = UDim.new(0, 8),
-			Parent = btnRow,
-		})
-
-		for _, btnCfg in ipairs(cfg.Buttons or {}) do
-			-- Main = true renders the same solid-accent fill as
-			-- Section:AddButton, for the dialog's primary action. Every
-			-- other button stays the flat/ghost secondary style: a
-			-- bordered pill that just fades more transparent on hover —
-			-- ElementBackgroundHover (not the idle ElementBackground) on
-			-- purpose, since it sits close in brightness to
-			-- SecondaryBackground (the card's own fill), so a button using
-			-- ElementBackground barely reads as distinct from the card.
-			-- No more hover-tinted border on the secondary style — the
-			-- fade alone is the hover cue now.
-			local isMain = btnCfg.Main == true
-			local btn = New("TextButton", {
-				Text = btnCfg.Title,
-				Font = Enum.Font.GothamBold,
-				TextSize = 13,
-				TextColor3 = isMain and Color3.new(1, 1, 1) or theme.Text,
-				BackgroundColor3 = isMain and theme.Accent or theme.ElementBackgroundHover,
-				AutoButtonColor = false,
-				AutomaticSize = Enum.AutomaticSize.X,
-				Size = UDim2.new(0, 0, 1, 0),
-				ZIndex = 51,
-				Parent = btnRow,
-			})
-			New("UISizeConstraint", { MinSize = Vector2.new(76, 0), Parent = btn })
-			Pad(btn, 16, 0, 16, 0)
-			Round(btn, 7)
-			if not isMain then
-				Stroke(btn, theme.Border, 1)
-			end
-			AddHoverFade(btn, 0, isMain and 0.3 or 0.5)
+		New("Frame", {Name = "Divider", BorderSizePixel = 0, BackgroundColor3 = theme.Divider,
+			Size = UDim2.new(1, 0, 0, 1), LayoutOrder = 4, Parent = box})
+		local btnRow = New("Frame", {Name = "Actions", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 40), LayoutOrder = 5, Parent = box})
+		New("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Right, Padding = UDim.new(0, 10), Parent = btnRow})
+		for i, btnCfg in ipairs(cfg.Buttons or {{Title = "Done", Main = true}}) do
+			local primary = btnCfg.Main == true
+			local idle = primary and theme.Accent or theme.ElementBackground
+			local btn = New("TextButton", {Name = btnCfg.Title or "Action", Text = btnCfg.Title or "Done",
+				Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = primary and theme.Background or theme.Text,
+				BackgroundColor3 = idle, AutoButtonColor = false, AutomaticSize = Enum.AutomaticSize.X,
+				Size = UDim2.new(0, 0, 1, 0), LayoutOrder = i, Parent = btnRow})
+			New("UISizeConstraint", {MinSize = Vector2.new(92, 0), Parent = btn})
+			Pad(btn, 18, 0, 18, 0) Round(btn, 9)
+			if not primary then Stroke(btn, theme.Border, 1) end
+			btn.MouseEnter:Connect(function() Tween(btn, {BackgroundColor3 = primary and theme.AccentHover or theme.ElementBackgroundHover}, 0.1) end)
+			btn.MouseLeave:Connect(function() Tween(btn, {BackgroundColor3 = idle}, 0.1) end)
 			btn.MouseButton1Click:Connect(function()
-				-- Only clear the tracked reference if a newer Dialog() call
-				-- hasn't already superseded (and reassigned) it out from
-				-- under this one.
-				if currentDialogOverlay == overlay then
-					currentDialogOverlay = nil
-				end
-				Tween(overlay, { BackgroundTransparency = 1 }, 0.12)
-				Tween(boxScale, { Scale = 0.96 }, 0.12)
-				Tween(box, { BackgroundTransparency = 1 }, 0.12)
-				Tween(boxShadow, { Transparency = 1 }, 0.12)
-				-- Fade every descendant too (text, button backgrounds/text,
-				-- strokes, the input field's stroke, etc.) — otherwise
-				-- everything but the card background stays fully opaque and
-				-- visibly "pops" out when overlay:Destroy() fires.
-				FadeOutTree(box, 0.12)
-				task.delay(0.12, function()
-					overlay:Destroy()
-				end)
-				if btnCfg.Callback then
-					btnCfg.Callback(inputBox and inputBox.Text or nil)
-				end
+				if closing then return end
+				local value = inputBox and inputBox.Text or nil
+				handle:Close()
+				if btnCfg.Callback then btnCfg.Callback(value) end
 			end)
 		end
+		return handle
 	end
-
-	--=========================================================================
-	-- TAB (only holds Sections — see Tab:AddSection below)
-	--=========================================================================
 
 	function Window:AddTab(tabConfig)
 		tabConfig = tabConfig or {}
 		local tabIndex = #self._tabs + 1
 
 		local button = New("TextButton", {
+			Name = tabConfig.Title or "Tab",
 			Text = "",
 			BackgroundColor3 = theme.Accent,
 			BackgroundTransparency = 1,
-			Size = UDim2.new(0, 40, 0, 40),
+			Size = UDim2.new(1, -28, 0, 38),
 			AutoButtonColor = false,
 			LayoutOrder = tabIndex,
 			Parent = TabRailScroll,
@@ -3213,24 +2507,20 @@ function NovaUI:CreateWindow(config)
 		local fallbackLabel
 		if iconImage then
 			iconImage.AnchorPoint = Vector2.new(0.5, 0.5)
-			iconImage.Position = UDim2.new(0.5, 0, 0.5, 0)
+			iconImage.Position = UDim2.new(0, 22, 0.5, 0)
 			iconImage.ImageColor3 = theme.SubText
 			iconImage.Parent = button
 		else
 			fallbackLabel = New("TextLabel", {
-				Text = (tabConfig.Title or "T"):sub(1, 1):upper(),
+				Text = tabConfig.Glyph or ({home = "⌂", crosshair = "⊕", zap = "ϟ", target = "◎", eye = "◉", activity = "⌁", globe = "⊕", users = "♧", box = "◇", folder = "▣", settings = "⚙"})[tabConfig.Icon] or "◇",
 				Font = Enum.Font.GothamBold,
 				TextSize = 15,
 				TextColor3 = theme.SubText,
 				BackgroundTransparency = 1,
-				Size = UDim2.new(1, 0, 1, 0),
+				Size = UDim2.new(0, 44, 1, 0),
 				Parent = button,
 			})
 		end
-		-- Blue glow behind the active tab's icon/fallback letter — starts
-		-- fully transparent (invisible) and only tweened in by SelectTab, so
-		-- an unselected tab pays no visible cost, just the same Enabled/
-		-- ReducedEffects handling every other shadow in the file gets.
 		local iconGlow = AddShadow(iconImage or fallbackLabel, {
 			Color = theme.Accent,
 			Transparency = 1,
@@ -3238,13 +2528,6 @@ function NovaUI:CreateWindow(config)
 			Blur = 14,
 		})
 
-		-- Slow "breathing" pulse for the active tab's icon glow — loops
-		-- between a dim and a bright transparency on a slow (~1.1s/leg)
-		-- sine tween the whole time the tab stays selected, same
-		-- start/stop-a-loop-via-an-external-flag shape as the Keybind
-		-- listening-pulse further down the file. `pulsing` (not just
-		-- whether glowPulseTween is set) is what the Completed callbacks
-		-- check, since a Cancel()'d tween still fires Completed once.
 		local pulsing = false
 		local glowPulseTween
 		local function StopGlowPulse()
@@ -3258,15 +2541,9 @@ function NovaUI:CreateWindow(config)
 			end
 		end
 		local function StartGlowPulse()
+			if not config.AnimatedIcons then return end
 			if pulsing or not iconGlow.Parent then return end
 			pulsing = true
-			-- Snap straight to visible instead of starting the loop with a
-			-- slow 1.1s fade-in from fully transparent — that first leg made
-			-- selecting a tab look like the glow hadn't started at all for
-			-- almost a full second. It's instantly there now; the loop below
-			-- is purely the breathing motion from that point on. Also pulls
-			-- both ends of the loop toward less transparent (0.15/0.4 instead
-			-- of 0.2/0.55) so the whole thing reads as more visible glow.
 			iconGlow.Transparency = 0.15
 			local function PulseTo(target)
 				glowPulseTween = Tween(iconGlow, { Transparency = target }, 1.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
@@ -3279,7 +2556,10 @@ function NovaUI:CreateWindow(config)
 			PulseTo(0.4)
 		end
 
-		AttachTooltip(button, tabConfig.Title or ("Tab " .. tabIndex))
+		local navLabel = New("TextLabel", {Text = tabConfig.Title or "Tab", Font = Enum.Font.GothamMedium, TextSize = 12,
+			TextColor3 = tabIndex == 1 and theme.Text or theme.SubText, TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd, BackgroundTransparency = 1, Position = UDim2.fromOffset(46, 0),
+			Size = UDim2.new(1, -54, 1, 0), Parent = button})
 
 		button.MouseEnter:Connect(function()
 			if tabIndex ~= Window._activeTabIndex then
@@ -3293,6 +2573,7 @@ function NovaUI:CreateWindow(config)
 		end)
 
 		local page = New("ScrollingFrame", {
+			Name = tabConfig.Title or "Tab",
 			BackgroundTransparency = 1,
 			Size = UDim2.new(1, 0, 1, 0),
 			CanvasSize = UDim2.new(0, 0, 0, 0),
@@ -3303,15 +2584,10 @@ function NovaUI:CreateWindow(config)
 			Visible = tabIndex == 1,
 			Parent = PagesContainer,
 		})
-		-- Deliberately no UIPadding on `page` itself: the two-column split
-		-- below needs pixel-exact control over the padded content width, and
-		-- mixing that with however UIPadding remaps Scale for its children
-		-- was the suspected source of column 2 still overflowing a little
-		-- even after the math was exact — padding is applied by hand instead,
-		-- computed straight from page.AbsoluteSize with no ambiguity.
-		local PAGE_PAD_LEFT, PAGE_PAD_TOP, PAGE_PAD_RIGHT, PAGE_PAD_BOTTOM = 20, 4, 20, 20
+		local PAGE_PAD_LEFT, PAGE_PAD_TOP, PAGE_PAD_RIGHT, PAGE_PAD_BOTTOM = 28, 24, 28, 24
 
 		local Tab = {
+			Title = tabConfig.Title or "Tab", Description = tabConfig.Description or "Customize your experience.", _navLabel = navLabel,
 			_page = page, _button = button, _icon = iconImage, _fallbackLabel = fallbackLabel,
 			_iconGlow = iconGlow, _startGlowPulse = StartGlowPulse, _stopGlowPulse = StopGlowPulse,
 			_columns = nil, _columnsFrame = nil,
@@ -3322,27 +2598,14 @@ function NovaUI:CreateWindow(config)
 		end)
 
 		if tabIndex == 1 then
+			PageTitle.Text = Tab.Title
+			PageDescription.Text = Tab.Description
 			button.BackgroundTransparency = 0.8
 			if iconImage then iconImage.ImageColor3 = activeIconColor end
 			if fallbackLabel then fallbackLabel.TextColor3 = theme.Text end
 			StartGlowPulse()
 		end
 
-		--=====================================================================
-		-- SECTION — the only way to add content to a tab. Sections lay out
-		-- in one of two side-by-side columns; each row inside is a labeled
-		-- control (toggle/slider/dropdown/colorpicker/keybind/input/button)
-		-- or a plain paragraph.
-		--=====================================================================
-
-		--- Tab:AddSection({ Title, Column, Order }) -> Section
-		--- Column is 1 or 2 (default 1), placing the section in the left or
-		--- right column, mirroring a two-panel settings layout. There's only
-		--- ever these two columns, but you can add as many sections to each
-		--- as you want — they stack vertically in the order you add them, so
-		--- a 3rd section with Column=1 lands below the 1st, a 4th with
-		--- Column=2 lands below the 2nd, and so on. Pass Order to control
-		--- the stacking position explicitly instead of relying on call order.
 		function Tab:AddSection(sectionCfg)
 			sectionCfg = sectionCfg or {}
 			local columnIndex = sectionCfg.Column or 1
@@ -3350,13 +2613,6 @@ function NovaUI:CreateWindow(config)
 			local COLUMN_GAP = 24
 
 			if not Tab._columnsFrame then
-				-- Pure offset Position/Size, computed directly from page's
-				-- raw (unpadded) AbsoluteSize — no Scale, no UIPadding
-				-- involved at all for this frame, so there's no ambiguity
-				-- left to cause column 2 to overflow. RIGHT_SAFETY reserves
-				-- a small extra gutter on top of PAGE_PAD_RIGHT so column 2
-				-- never sits flush against page's true right edge (where its
-				-- scrollbar rides).
 				local RIGHT_SAFETY = 6
 				Tab._columnsFrame = New("Frame", {
 					BackgroundTransparency = 1,
@@ -3422,20 +2678,21 @@ function NovaUI:CreateWindow(config)
 
 			local column = Tab._columns[columnIndex]
 
-			-- Sections stack vertically within their column in the order
-			-- they're added — a 3rd AddSection with Column=1 lands below the
-			-- 1st, a 4th with Column=2 lands below the 2nd, and so on.
-			-- (sectionCfg.Order overrides that if you want a specific spot.)
 			Tab._sectionCounts = Tab._sectionCounts or {}
 			Tab._sectionCounts[columnIndex] = (Tab._sectionCounts[columnIndex] or 0) + 1
 
 			local sectionFrame = New("Frame", {
-				BackgroundTransparency = 1,
+				Name = sectionCfg.Title or "Section",
+				BackgroundColor3 = theme.SecondaryBackground,
+				BackgroundTransparency = 0,
 				Size = UDim2.new(1, 0, 0, 0),
 				AutomaticSize = Enum.AutomaticSize.Y,
 				LayoutOrder = sectionCfg.Order or Tab._sectionCounts[columnIndex],
 				Parent = column,
 			})
+			Round(sectionFrame, 14)
+			Stroke(sectionFrame, theme.Divider, 1)
+			Pad(sectionFrame, 20, 18, 20, 12)
 			New("UIListLayout", {
 				SortOrder = Enum.SortOrder.LayoutOrder,
 				Padding = UDim.new(0, 3),
@@ -3450,46 +2707,33 @@ function NovaUI:CreateWindow(config)
 					TextColor3 = theme.SubText,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					BackgroundTransparency = 1,
-					Size = UDim2.new(1, 0, 0, 20),
+					Size = UDim2.new(1, 0, 0, 28),
 					LayoutOrder = 0,
 					Parent = sectionFrame,
 				})
 			end
 
-			local Section = { _rowCount = 0 }
+			local Section = { _rowCount = 0, Instance = sectionFrame }
 
-			-- Shared row shell used by every Section:AddX method below.
-			-- `controlWidth` is how much horizontal space to reserve on the
-			-- right for that row's control.
-			-- `stacked` puts the control on its own full-width line *under* the
-			-- title/description instead of inline to the right of it, for
-			-- controls that need the room (a dropdown's selection is unreadable
-			-- squeezed into 130px, especially multi-select). `controlWidth` is
-			-- ignored for stacked rows — the control gets the full width.
 			local STACKED_GAP = 6
 			local STACKED_CONTROL_HEIGHT = 26
 			local function CreateRow(rowCfg, controlWidth, stacked)
 				rowCfg = rowCfg or {}
 				local elevated = rowCfg.Elevated and true or false
 				local hasDescription = rowCfg.Description ~= nil and rowCfg.Description ~= ""
-				-- Title label is 16px, description another 14 — inline rows
-				-- center that block in a fixed height, stacked rows measure it
-				-- so the control can sit directly beneath.
 				local labelHeight = hasDescription and 30 or 16
 				local padX = elevated and 12 or 4
-				-- Inline rows get their breathing room from the fixed row
-				-- height; a stacked row's height is derived, so the padding has
-				-- to be real instead.
 				local padY = stacked and (elevated and 10 or 6) or 0
 				local rowHeight
 				if stacked then
 					rowHeight = padY * 2 + labelHeight + STACKED_GAP + STACKED_CONTROL_HEIGHT
 				else
-					rowHeight = elevated and 44 or (hasDescription and 40 or 32)
+					rowHeight = elevated and 56 or (hasDescription and 58 or 50)
 				end
 
 				Section._rowCount = Section._rowCount + 1
 				local row = New("Frame", {
+					Name = rowCfg.Title or "Row",
 					BackgroundColor3 = elevated and theme.ElementBackground or theme.ElementBackground,
 					BackgroundTransparency = elevated and 0 or 1,
 					Size = UDim2.new(1, 0, 0, rowHeight),
@@ -3498,9 +2742,8 @@ function NovaUI:CreateWindow(config)
 				})
 				Round(row, 8)
 				Pad(row, padX, padY, padX, padY)
+				New("Frame", {Name = "Divider", BackgroundColor3 = theme.Divider, BackgroundTransparency = 0.4, BorderSizePixel = 0, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 1), Parent = row})
 
-				-- Every row gets a restrained fade+rise on creation, and a
-				-- subtle hover highlight — modern, not bouncy.
 				FadeSlideIn(row, math.min(Section._rowCount * 0.012, 0.1))
 				local hoverOnTransparency = elevated and 0 or 0.92
 				local hoverOffTransparency = elevated and 0 or 1
@@ -3524,9 +2767,6 @@ function NovaUI:CreateWindow(config)
 
 				local labelBox = New("Frame", {
 					BackgroundTransparency = 1,
-					-- Stacked: full width, pinned to the top, only as tall as
-					-- the labels. Inline: full height minus the reserved
-					-- control strip on the right.
 					Size = stacked and UDim2.new(1, 0, 0, labelHeight) or UDim2.new(1, -(controlWidth + 10), 1, 0),
 					Parent = row,
 				})
@@ -3538,8 +2778,8 @@ function NovaUI:CreateWindow(config)
 				New("TextLabel", {
 					Text = rowCfg.Title or "",
 					Font = elevated and Enum.Font.GothamMedium or Enum.Font.Gotham,
-					TextSize = elevated and 13 or 12.5,
-					TextColor3 = elevated and theme.Text or theme.SubText,
+					TextSize = 13,
+					TextColor3 = theme.Text,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					BackgroundTransparency = 1,
 					Size = UDim2.new(1, 0, 0, 16),
@@ -3561,10 +2801,8 @@ function NovaUI:CreateWindow(config)
 				end
 
 				local controlHolder = New("Frame", {
+					Name = "Control",
 					BackgroundTransparency = 1,
-					-- Stacked rows hang the control off the bottom edge (the
-					-- gap under the labels falls out of the derived height);
-					-- inline rows pin it right and vertically centered.
 					AnchorPoint = stacked and Vector2.new(0, 1) or Vector2.new(1, 0.5),
 					Position = stacked and UDim2.new(0, 0, 1, 0) or UDim2.new(1, 0, 0.5, 0),
 					Size = stacked and UDim2.new(1, 0, 0, STACKED_CONTROL_HEIGHT) or UDim2.new(0, controlWidth, 1, 0),
@@ -3580,10 +2818,6 @@ function NovaUI:CreateWindow(config)
 				})
 
 				if rowCfg.Menu then
-					-- On a stacked row the bottom strip belongs entirely to the
-					-- full-width control, so the menu button goes top-right
-					-- alongside the title instead of sharing that strip (where
-					-- the list layout would shove the control off the row).
 					local menuBtn = New("TextButton", {
 						Text = "\226\139\175",
 						Font = Enum.Font.GothamBold,
@@ -3604,14 +2838,14 @@ function NovaUI:CreateWindow(config)
 				return row, controlHolder
 			end
 
-			--- Section:AddToggle(id, { Title, Description, Default, Elevated, Menu, Callback })
 			function Section:AddToggle(id, cfg)
 				cfg = cfg or {}
-				local _, controlHolder = CreateRow(cfg, cfg.Menu and 60 or 36)
+				local _, controlHolder = CreateRow(cfg, cfg.Menu and 70 or 44)
 
 				local track = New("Frame", {
+					Name = "Toggle",
 					BackgroundColor3 = theme.ElementBackgroundHover,
-					Size = UDim2.new(0, 36, 0, 18),
+					Size = UDim2.new(0, 44, 0, 24),
 					Parent = controlHolder,
 				})
 				Pill(track)
@@ -3619,7 +2853,7 @@ function NovaUI:CreateWindow(config)
 					BackgroundColor3 = theme.Text,
 					AnchorPoint = Vector2.new(0, 0.5),
 					Position = UDim2.new(0, 2, 0.5, 0),
-					Size = UDim2.new(0, 14, 0, 14),
+					Size = UDim2.new(0, 18, 0, 18),
 					Parent = track,
 				})
 				Pill(knob)
@@ -3629,7 +2863,7 @@ function NovaUI:CreateWindow(config)
 				local function Render(animate)
 					local on = Toggle.Value
 					local trackColor = on and theme.Accent or theme.ElementBackgroundHover
-					local knobPos = on and UDim2.new(1, -16, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+					local knobPos = on and UDim2.new(1, -21, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
 					if animate then
 						Tween(track, { BackgroundColor3 = trackColor }, 0.12)
 						Tween(knob, { Position = knobPos }, 0.12)
@@ -3639,11 +2873,6 @@ function NovaUI:CreateWindow(config)
 					end
 				end
 				Render(false)
-				-- Fire once at creation too, with the actual starting value
-				-- (Default or false — never hardcoded true), same as Dropdown
-				-- already does for its cfg.Default. Without this, Callback/
-				-- OnChanged never hear about the toggle's initial state at
-				-- all — only about changes from the first click onward.
 				Toggle.Changed:Fire(Toggle.Value)
 				if cfg.Callback then cfg.Callback(Toggle.Value) end
 				function Toggle:SetValue(value)
@@ -3659,34 +2888,36 @@ function NovaUI:CreateWindow(config)
 				return Toggle
 			end
 
-			--- Section:AddSlider(id, { Title, Description, Default, Min, Max, Rounding, Suffix, Elevated, Callback })
 			function Section:AddSlider(id, cfg)
 				cfg = cfg or {}
 				local min, max = cfg.Min or 0, cfg.Max or 100
-				-- Defaults to 1 decimal place now (was whole numbers); still
-				-- overridable per-slider — pass Rounding = 0 for whole numbers
-				-- back, but anything above 1 gets capped at 1 either way.
-				local rounding = math.min(cfg.Rounding or 1, 1)
+				local rounding = math.clamp(cfg.Rounding or 1, 0, 4)
 				local suffix = cfg.Suffix or ""
 				local controlWidth = 160
 
-				local _, controlHolder = CreateRow(cfg, controlWidth)
+				local row, controlHolder = CreateRow(cfg, 0, true)
+				row.Size = UDim2.new(1, 0, 0, cfg.Description and 92 or 74)
+				controlHolder:FindFirstChildOfClass("UIListLayout"):Destroy()
 
 				local valueLabel = New("TextLabel", {
 					Text = tostring(cfg.Default or min) .. suffix,
 					Font = Enum.Font.Gotham,
 					TextSize = 12,
-					TextColor3 = theme.SubText,
+					TextColor3 = theme.Accent,
 					TextXAlignment = Enum.TextXAlignment.Right,
 					BackgroundTransparency = 1,
-					Size = UDim2.new(0, 44, 1, 0),
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, 0, 0, 0),
+					Size = UDim2.new(0, 80, 0, 16),
 					LayoutOrder = 1,
-					Parent = controlHolder,
+					Parent = row,
 				})
 
 				local track = New("Frame", {
 					BackgroundColor3 = theme.ElementBackgroundHover,
-					Size = UDim2.new(0, controlWidth - 52, 0, 4),
+					Name = "Track",
+					Position = UDim2.new(0, 0, 0.5, -3),
+					Size = UDim2.new(1, 0, 0, 6),
 					LayoutOrder = 2,
 					Parent = controlHolder,
 				})
@@ -3694,58 +2925,69 @@ function NovaUI:CreateWindow(config)
 				local fill = New("Frame", { BackgroundColor3 = theme.Accent, Size = UDim2.new(0, 0, 1, 0), Parent = track })
 				Pill(fill)
 				local knob = New("Frame", {
-					BackgroundColor3 = theme.Text,
+					Name = "Knob",
+					BorderSizePixel = 0,
+					BackgroundColor3 = theme.Accent,
 					AnchorPoint = Vector2.new(0.5, 0.5),
 					Position = UDim2.new(0, 0, 0.5, 0),
-					Size = UDim2.new(0, 11, 0, 11),
+					Size = UDim2.new(0, 15, 0, 15),
 					ZIndex = 2,
 					Parent = track,
 				})
 				Pill(knob)
+				local glow = AddShadow(knob, {Color = theme.Accent, Transparency = 0.25, OffsetY = 0, Blur = 16})
+				glow.Name = "SliderGlow"
+				glow.Spread = UDim2.fromOffset(3, 3)
+				local dragging, hovering = false, false
+				local fillMotion, knobMotion
+				local function RefreshInteraction()
+					local active = dragging or hovering
+					glow.Enabled = not NovaUI.ReducedEffects
+					Tween(glow, {Transparency = active and 0.15 or 0.25}, 0.12, EASE)
+				end
 
 				local Slider = { Value = cfg.Default or min, Changed = Signal.new() }
 				local function ApplyRounding(v)
 					if rounding <= 0 then return math.floor(v + 0.5) end
-					-- Going through string.format (rather than
-					-- math.floor(v * mult + 0.5) / mult) matters here: that
-					-- division doesn't always land on a clean decimal in
-					-- floating point (e.g. it can store as 83.49999999999997
-					-- instead of 83.5), so Slider.Value/Callback would carry
-					-- that noise even though the label displayed "83.5" via
-					-- its own separate string.format call. Rounding the
-					-- actual stored value the same way the label formats it
-					-- keeps both in sync.
 					return tonumber(string.format("%." .. rounding .. "f", v))
 				end
-				local function RenderSlider(v)
+				local function RenderSlider(v, animate)
 					v = math.clamp(v, min, max)
 					local alpha = (max ~= min) and (v - min) / (max - min) or 0
-					fill.Size = UDim2.new(alpha, 0, 1, 0)
-					knob.Position = UDim2.new(alpha, 0, 0.5, 0)
-					-- string.format instead of tostring so the decimal count is
-					-- always consistent (e.g. always "80.0", never "80" one time
-					-- and "80.5" the next just because a value landed on a
-					-- whole number).
+					if fillMotion then fillMotion:Cancel() end
+					if knobMotion then knobMotion:Cancel() end
+					local size, position = UDim2.new(alpha, 0, 1, 0), UDim2.new(alpha, 0, 0.5, 0)
+					if animate and not NovaUI.ReducedEffects then
+						fillMotion = Tween(fill, {Size = size}, 0.12, EASE)
+						knobMotion = Tween(knob, {Position = position}, 0.12, EASE)
+					else
+						fill.Size = size
+						knob.Position = position
+					end
 					valueLabel.Text = string.format("%." .. rounding .. "f", v) .. suffix
 				end
 				RenderSlider(Slider.Value)
 				function Slider:SetValue(v)
-					v = ApplyRounding(v)
+					v = math.clamp(ApplyRounding(v), min, max)
 					Slider.Value = v
-					RenderSlider(v)
+					RenderSlider(v, not dragging)
 					Slider.Changed:Fire(v)
 					if cfg.Callback then cfg.Callback(v) end
 				end
 				function Slider:OnChanged(fn) Slider.Changed:Connect(fn) end
 
-				local dragging = false
 				local function UpdateFromInputPos(x)
 					local rel = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
 					Slider:SetValue(min + rel * (max - min))
 				end
-				track.InputBegan:Connect(function(input)
+				local hit = New("TextButton", {Name = "SliderHit", Text = "", BackgroundTransparency = 1, Size = UDim2.new(1, 12, 0, 26), Position = UDim2.fromOffset(-6, -10), ZIndex = 3, Parent = track})
+				hit.MouseEnter:Connect(function() hovering = true RefreshInteraction() end)
+				hit.MouseLeave:Connect(function() hovering = false RefreshInteraction() end)
+				hit.InputBegan:Connect(function(input)
+					if currentPopup or currentDialogOverlay then return end
 					if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 						dragging = true
+						RefreshInteraction()
 						UpdateFromInputPos(input.Position.X)
 					end
 				end)
@@ -3757,6 +2999,7 @@ function NovaUI:CreateWindow(config)
 				Track(UserInputService.InputEnded:Connect(function(input)
 					if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 						dragging = false
+						RefreshInteraction()
 					end
 				end))
 
@@ -3764,77 +3007,43 @@ function NovaUI:CreateWindow(config)
 				return Slider
 			end
 
-			--- Section:AddDropdown(id, { Title, Description, Values, Multi, Default, Elevated, Callback })
-			--- Values entries don't have to be strings: hand it a list of
-			--- Instances (parts, players, ...) and Value/Changed/Callback give
-			--- back those objects, not their names. Only the option label is
-			--- stringified.
-			--- Lays out taller than the other controls: the button sits on its
-			--- own line under the title/description and spans the full width of
-			--- the section, since a selection (especially a multi-select one)
-			--- doesn't read in the ~130px an inline control gets.
-			--- Clicking it opens a small search panel rather than a plain list:
-			--- a filter box narrows the options down as you type (the panel
-			--- shrinks to fit whatever survives), and a bulk-action row sits
-			--- under it — "Select All" (multi-select only, and it takes what the
-			--- current search is showing rather than every option) plus "None",
-			--- which clears the selection outright.
-			--- On a touch device (phone/tablet) that panel centers itself on
-			--- screen behind a dim scrim and scales everything up to finger
-			--- size, rather than hanging off the button at mouse proportions.
 			function Section:AddDropdown(id, cfg)
 				cfg = cfg or {}
 				local values = cfg.Values or {}
 				local multi = cfg.Multi or false
-				-- Only a floor for the popup's width before the button has been
-				-- measured — the button itself is full-width on its own line
-				-- under the title, not a fixed-width box beside it. Wider than the
-				-- plain list used to need, so the search field and the All/None row
-				-- still read at the floor, and wider again on touch.
-				local minPopupWidth = IsMobile and 240 or 180
+				local minPopupWidth = IsMobile and 280 or 250
 
-				-- Popup geometry. The option list is capped at a row count and
-				-- scrolls past that; the search field and the All/None row above it
-				-- are a fixed-height header, so the popup's total height is that
-				-- header plus however many rows the current search leaves showing.
-				-- Everything scales up on touch, where a 26px row is well under a
-				-- comfortable tap target and 12px labels are a squint.
-				local OPTION_HEIGHT = IsMobile and 40 or 26
-				local OPTION_GAP = IsMobile and 4 or 2
+				local OPTION_HEIGHT = IsMobile and 44 or 36
+				local OPTION_GAP = 4
 				local MAX_VISIBLE_OPTIONS = IsMobile and 8 or 6
-				local POPUP_PADDING = IsMobile and 8 or 4
-				local SEARCH_HEIGHT = IsMobile and 38 or 26
-				local ACTION_HEIGHT = IsMobile and 34 or 22
-				local SECTION_GAP = IsMobile and 6 or 4
+				local POPUP_PADDING = 10
+				local SEARCH_HEIGHT = IsMobile and 40 or 36
+				local ACTION_HEIGHT = 30
+				local SECTION_GAP = 8
 				local SEARCH_ICON_SIZE = IsMobile and 16 or 12
-				local POPUP_TEXT_SIZE = IsMobile and 15 or 12
-				local ACTION_TEXT_SIZE = IsMobile and 13 or 11
+				local POPUP_TEXT_SIZE = IsMobile and 15 or 13
+				local ACTION_TEXT_SIZE = 12
 				local headerHeight = POPUP_PADDING * 2 + SEARCH_HEIGHT + ACTION_HEIGHT + SECTION_GAP * 2
 
-				local _, controlHolder = CreateRow(cfg, nil, true)
+				local _, controlHolder = CreateRow(cfg, cfg.Width or 138, cfg.Multi or cfg.Stacked)
 
 				local ddBtn = New("TextButton", {
+					Name = "Dropdown",
 					Text = "",
-					BackgroundColor3 = theme.ElementBackgroundHover,
+					BackgroundColor3 = theme.ElementBackground,
 					BackgroundTransparency = 0,
 					AutoButtonColor = false,
-					Size = UDim2.new(1, 0, 1, 0),
+					Size = UDim2.new(1, 0, 0, 32),
 					LayoutOrder = 1,
 					Parent = controlHolder,
 				})
-				Round(ddBtn, 6)
-				-- Deliberately no UIPadding on ddBtn itself — the chevron
-				-- below is positioned as a raw offset from ddBtn's own true
-				-- right edge, and UIPadding would shrink that reference box
-				-- too, landing the chevron well short of the edge instead of
-				-- flush against it. The value text gets its own label
-				-- instead of ddBtn's built-in Text, sized to leave room for
-				-- the chevron on the right.
+				Round(ddBtn, 8)
+				Stroke(ddBtn, theme.Border, 1)
 				local ddLabel = New("TextLabel", {
 					Text = "",
 					Font = Enum.Font.Gotham,
 					TextSize = 12,
-					TextColor3 = theme.SubText,
+					TextColor3 = theme.Text,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					TextTruncate = Enum.TextTruncate.AtEnd,
 					BackgroundTransparency = 1,
@@ -3843,7 +3052,6 @@ function NovaUI:CreateWindow(config)
 					Parent = ddBtn,
 				})
 
-				-- Kept as a variable so it can be flipped 180° open/closed.
 				local chevron
 				do
 					local icon = GetIcon("chevron-down", 10)
@@ -3868,25 +3076,18 @@ function NovaUI:CreateWindow(config)
 					end
 				end
 
-				-- Fully opaque popup — rendered in Overlay so it's never occluded
-				-- by (or bleeding through) later sections/rows. Its width has to
-				-- be a real offset (OpenPopup places it off Size.X.Offset), so
-				-- it's re-measured from the button on every open rather than
-				-- scaled; until the button has been laid out once, the floor
-				-- below stands in. It isn't a bare list any more: a search field
-				-- and an All/None row stack above the options, so the popup is
-				-- laid out vertically instead of the scroller filling all of it.
 				local listFrame = New("Frame", {
-					BackgroundColor3 = theme.PopupBackground,
+					Name = "DropdownPopup",
+					BackgroundColor3 = theme.SecondaryBackground,
 					BackgroundTransparency = 0,
 					Visible = false,
 					ClipsDescendants = true,
 					Size = UDim2.new(0, minPopupWidth, 0, headerHeight + OPTION_HEIGHT),
 					Parent = Overlay,
 				})
-				Round(listFrame, 6)
+				Round(listFrame, 12)
 				Stroke(listFrame, theme.Border, 1)
-				AddShadow(listFrame, { Transparency = 0.45, OffsetY = 6, Blur = 16 })
+				AddShadow(listFrame, { Transparency = 0.3, OffsetY = 10, Blur = 24 })
 				Pad(listFrame, POPUP_PADDING)
 				New("UIListLayout", {
 					SortOrder = Enum.SortOrder.LayoutOrder,
@@ -3894,16 +3095,15 @@ function NovaUI:CreateWindow(config)
 					Parent = listFrame,
 				})
 
-				-- Search field. Same shape as AddInput's box (accent focus ring
-				-- included) so typing in a popup feels like typing anywhere else.
 				local searchPill = New("Frame", {
 					BackgroundColor3 = theme.ElementBackground,
 					Size = UDim2.new(1, 0, 0, SEARCH_HEIGHT),
 					LayoutOrder = 1,
 					Parent = listFrame,
 				})
-				Round(searchPill, 4)
-				Pad(searchPill, 6, 0, 6, 0)
+				Round(searchPill, 8)
+				Stroke(searchPill, theme.Border, 1)
+				Pad(searchPill, 10, 0, 10, 0)
 				New("UIListLayout", {
 					SortOrder = Enum.SortOrder.LayoutOrder,
 					FillDirection = Enum.FillDirection.Horizontal,
@@ -3933,7 +3133,8 @@ function NovaUI:CreateWindow(config)
 				end
 				local searchInput = New("TextBox", {
 					Text = "",
-					PlaceholderText = "Search...",
+					Name = "SearchOptions",
+					PlaceholderText = "Search options...",
 					Font = Enum.Font.Gotham,
 					TextSize = POPUP_TEXT_SIZE,
 					TextColor3 = theme.Text,
@@ -3953,13 +3154,11 @@ function NovaUI:CreateWindow(config)
 					Tween(searchRing, { Transparency = 1 }, 0.15)
 				end)
 
-				-- Bulk-selection row. "Select All" only means anything for a
-				-- multi-select, so a single-select gets a full-width "None" rather
-				-- than half a row with a dead half beside it.
 				local actionRow = New("Frame", {
+					Name = "SelectionActions",
 					BackgroundTransparency = 1,
 					Size = UDim2.new(1, 0, 0, ACTION_HEIGHT),
-					LayoutOrder = 2,
+					LayoutOrder = 3,
 					Parent = listFrame,
 				})
 				New("UIListLayout", {
@@ -3982,7 +3181,8 @@ function NovaUI:CreateWindow(config)
 						LayoutOrder = layoutOrder,
 						Parent = actionRow,
 					})
-					Round(btn, 4)
+					Round(btn, 7)
+					Stroke(btn, theme.Border, 1, 0.4)
 					btn.MouseEnter:Connect(function()
 						Tween(btn, { BackgroundColor3 = theme.ElementBackgroundHover, TextColor3 = theme.Text }, 0.1)
 					end)
@@ -3992,25 +3192,21 @@ function NovaUI:CreateWindow(config)
 					return btn
 				end
 				local selectAllBtn = multi and ActionButton("Select All", 1, UDim2.new(0.5, -2, 1, 0)) or nil
-				local noneBtn = ActionButton("None", 2, multi and UDim2.new(0.5, -2, 1, 0) or UDim2.new(1, 0, 1, 0))
+				local noneBtn = ActionButton("Clear selection", 2, multi and UDim2.new(0.5, -2, 1, 0) or UDim2.new(1, 0, 1, 0))
 
-				-- Height is driven by ResizePopup (below) off how many options the
-				-- search leaves showing, so it can't just fill listFrame the way it
-				-- did when the popup was nothing but this scroller.
 				local listScroll = New("ScrollingFrame", {
+					Name = "Options",
+					ScrollBarImageColor3 = theme.Border,
 					BackgroundTransparency = 1,
 					Size = UDim2.new(1, 0, 0, OPTION_HEIGHT),
 					CanvasSize = UDim2.new(0, 0, 0, 0),
 					AutomaticCanvasSize = Enum.AutomaticSize.Y,
 					ScrollBarThickness = 2,
 					BorderSizePixel = 0,
-					LayoutOrder = 3,
+					LayoutOrder = 2,
 					Parent = listFrame,
 				})
 				New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, OPTION_GAP), Parent = listScroll })
-				-- Stand-in row so a search that matches nothing (or a dropdown with
-				-- no options yet) doesn't collapse the list to an empty sliver. Its
-				-- LayoutOrder is past any real option's, so it always sorts last.
 				local emptyLabel = New("TextLabel", {
 					Text = "No options",
 					Font = Enum.Font.Gotham,
@@ -4026,25 +3222,9 @@ function NovaUI:CreateWindow(config)
 				Pad(emptyLabel, 8, 0, 8, 0)
 
 				local Dropdown = { Value = multi and {} or nil, Changed = Signal.new(), _optionButtons = {} }
-				-- Tracks the in-flight hover Tween per option (keyed by name) so a
-				-- quick mouse pass across several options can't leave stray tweens
-				-- running: without cancelling, a tween started on MouseEnter keeps
-				-- animating toward the highlighted transparency even after
-				-- MouseLeave has already reset the property instantly, so it
-				-- silently re-highlights a split second later — with several
-				-- options passed over quickly, they can all end up stuck lit.
 				local hoverTweens = {}
-				-- tostring(entry) -> the raw entry from Values. Buttons, hover
-				-- tweens and highlights are all keyed by that string, but the
-				-- object behind it is what Dropdown.Value holds, so a dropdown
-				-- built from parts hands parts back to the callback.
 				local optionByKey = {}
-				-- The popup's current search, lowercased. "" means "show everything".
 				local searchQuery = ""
-				-- Accepts either an entry itself or the name of one (from a
-				-- saved config, or just for convenience) and returns the live
-				-- entry. Values that don't name an option pass through
-				-- untouched, so SetValue still works ahead of SetOptions.
 				local function ResolveOption(value)
 					if value == nil then return nil end
 					local option = optionByKey[tostring(value)]
@@ -4079,13 +3259,11 @@ function NovaUI:CreateWindow(config)
 						end
 						local active = IsSelected(key)
 						btn.BackgroundTransparency = active and 0.85 or 1
-						btn.TextColor3 = active and theme.Accent or theme.Text
+						btn.TextColor3 = theme.Text
+						local check = btn:FindFirstChild("Selected")
+						if check then check.Visible = active end
 					end
 				end
-				-- Plain case-insensitive substring match on the option's label —
-				-- string.find with plain=true, so a query containing Lua pattern
-				-- characters ("(", "%", "-") searches for them literally instead of
-				-- erroring or quietly matching something else.
 				local function Matches(key)
 					if searchQuery == "" then return true end
 					return string.find(key:lower(), searchQuery, 1, true) ~= nil
@@ -4097,16 +3275,10 @@ function NovaUI:CreateWindow(config)
 					end
 					return shown
 				end
-				-- The header is fixed; only the list part moves, so the popup
-				-- shrinks as a search narrows the options down and grows back (to
-				-- the row cap) when it's cleared.
 				local function ResizePopup(width, shown)
 					shown = shown or VisibleOptionCount()
 					local rows = math.clamp(shown, 1, MAX_VISIBLE_OPTIONS)
 					if IsMobile then
-						-- Touch rows are half again as tall, so the flat cap above
-						-- can still overrun a short phone screen — lower it to
-						-- whatever actually fits in 70% of the viewport.
 						local screenHeight = Overlay.AbsoluteSize.Y
 						if screenHeight > 0 then
 							local roomForRows = math.floor((screenHeight * 0.7 - headerHeight + OPTION_GAP) / (OPTION_HEIGHT + OPTION_GAP))
@@ -4133,19 +3305,10 @@ function NovaUI:CreateWindow(config)
 					ApplyFilter()
 				end)
 				function Dropdown:OnChanged(fn) Dropdown.Changed:Connect(fn) end
-				--- Dropdown:SetValue(value) — value may be an entry from Values
-				--- or its name; either way Dropdown.Value ends up holding the
-				--- entry. Multi-select takes a list or a map and keys the
-				--- resulting map by entry too.
 				function Dropdown:SetValue(value)
 					if multi then
 						local map = {}
 						if typeof(value) == "table" then
-							-- List of entries, or an entry -> selected map. Keys
-							-- are entries now, so a numeric option leaves a map
-							-- with a value[1] of its own; the tie-breaker is that
-							-- a map always stores a boolean there, a list never
-							-- does.
 							if value[1] ~= nil and typeof(value[1]) ~= "boolean" then
 								for _, name in ipairs(value) do map[ResolveOption(name)] = true end
 							else
@@ -4161,8 +3324,6 @@ function NovaUI:CreateWindow(config)
 					Dropdown.Changed:Fire(Dropdown.Value)
 					if cfg.Callback then cfg.Callback(Dropdown.Value) end
 				end
-				-- Pulled out so SetOptions can rebuild the list on demand
-				-- instead of only ever building it once at creation time.
 				local function CreateOptionButton(name, i)
 					local optKey = tostring(name)
 					local optBtn = New("TextButton", {
@@ -4175,15 +3336,17 @@ function NovaUI:CreateWindow(config)
 						BackgroundColor3 = theme.Accent,
 						BackgroundTransparency = 1,
 						AutoButtonColor = false,
-						-- An option added while a search is running stays hidden
-						-- until it matches, same as any other non-match.
 						Visible = Matches(optKey),
 						Size = UDim2.new(1, 0, 0, OPTION_HEIGHT),
 						LayoutOrder = i,
 						Parent = listScroll,
 					})
-					Round(optBtn, 4)
-					Pad(optBtn, 8, 0, 8, 0)
+					Round(optBtn, 8)
+					Pad(optBtn, 12, 0, 34, 0)
+					local selected = New("Frame", {Name = "Selected", BackgroundTransparency = 1, Size = UDim2.fromOffset(14, 14),
+						AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 22, 0.5, 0), Visible = false, Parent = optBtn})
+					New("Frame", {BorderSizePixel = 0, BackgroundColor3 = theme.Accent, Size = UDim2.fromOffset(6, 2), Position = UDim2.fromOffset(0, 8), Rotation = 45, Parent = selected})
+					New("Frame", {BorderSizePixel = 0, BackgroundColor3 = theme.Accent, Size = UDim2.fromOffset(10, 2), Position = UDim2.fromOffset(3, 6), Rotation = -45, Parent = selected})
 					Dropdown._optionButtons[optKey] = optBtn
 					optionByKey[optKey] = name
 					optBtn.MouseEnter:Connect(function()
@@ -4218,11 +3381,6 @@ function NovaUI:CreateWindow(config)
 					end
 				end
 
-				-- Dropdown:SetOptions(list) — replaces the whole option list
-				-- (rebuilds the popup from scratch). Current Value is kept if
-				-- it's still present in the new list; otherwise it's cleared
-				-- (single-select) or pruned down to only the surviving keys
-				-- (multi-select), same as removing a now-invalid selection.
 				function Dropdown:SetOptions(list)
 					values = list or {}
 					for _, btn in pairs(Dropdown._optionButtons) do btn:Destroy() end
@@ -4237,9 +3395,6 @@ function NovaUI:CreateWindow(config)
 							CreateOptionButton(name, i)
 						end
 					end
-					-- Selections carry over by name, so a rebuilt list re-points
-					-- Value at the *new* list's entry rather than keeping a
-					-- reference to the old (possibly destroyed) object.
 					if multi then
 						local survivors = {}
 						for name, on in pairs(Dropdown.Value or {}) do
@@ -4256,10 +3411,6 @@ function NovaUI:CreateWindow(config)
 				end
 
 				if selectAllBtn then
-					-- Selects everything the current search is showing and leaves
-					-- filtered-out selections alone: "Select All" means all of what
-					-- you can see, not a silent reset of what you'd already picked
-					-- before typing.
 					selectAllBtn.MouseButton1Click:Connect(function()
 						local newMap = {}
 						for option, on in pairs(Dropdown.Value or {}) do
@@ -4271,9 +3422,6 @@ function NovaUI:CreateWindow(config)
 						Dropdown:SetValue(newMap)
 					end)
 				end
-				-- Clears every selection, search or no search — it's the "get me
-				-- back to nothing" escape hatch, so it deliberately ignores the
-				-- filter. Single-select closes after it, same as picking an option.
 				noneBtn.MouseButton1Click:Connect(function()
 					if multi then
 						Dropdown:SetValue({})
@@ -4283,18 +3431,10 @@ function NovaUI:CreateWindow(config)
 					end
 				end)
 
-				ddBtn.MouseButton1Click:Connect(function()
-					-- Match the popup to the button it drops out of, now that the
-					-- button's width comes from the section rather than a
-					-- constant. Measured here because AbsoluteSize isn't known
-					-- until the row has been laid out, and it changes with the
-					-- window / column count. On touch it's measured off the SCREEN
-					-- instead — a finger-sized panel is wider than most rows, and
-					-- it gets centered rather than dropped under the button.
+				function Dropdown:Open()
+					if currentPopup == listFrame then return end
 					local popupWidth
 					if IsMobile then
-						-- A little over half the screen, capped: 80% of a landscape
-						-- phone came out absurdly wide for a list of short labels.
 						local screenWidth = Overlay.AbsoluteSize.X
 						local widest = math.max(minPopupWidth, math.min(320, screenWidth - 32))
 						popupWidth = math.clamp(math.floor(screenWidth * 0.55), minPopupWidth, widest)
@@ -4305,31 +3445,23 @@ function NovaUI:CreateWindow(config)
 					OpenPopup(listFrame, ddBtn, {
 						Align = "left",
 						Center = IsMobile,
-						-- Growing downward reads as "dropping out of the button".
-						-- A centered panel isn't dropping out of anything, so it
-						-- scales in from its own center instead.
 						GrowHeight = not IsMobile,
 						OnClose = function()
 							Tween(chevron, { Rotation = 0 }, 0.12)
-							-- Every open starts from a clean, unfiltered list.
-							-- Clearing the box re-runs ApplyFilter through the
-							-- Text handler above.
 							searchInput:ReleaseFocus()
 							searchInput.Text = ""
 						end,
 					})
-					-- OpenPopup toggles closed (and Visible=false) if this
-					-- dropdown was already open; only flip to 180° when it
-					-- actually just opened.
 					if listFrame.Visible then
 						Tween(chevron, { Rotation = 180 }, 0.12)
-						-- Type-to-filter straight away on desktop. Skipped on touch,
-						-- where capturing focus throws the on-screen keyboard up
-						-- over the list that was just opened.
 						if not UserInputService.TouchEnabled then
 							searchInput:CaptureFocus()
 						end
 					end
+				end
+				function Dropdown:Close() if currentPopup == listFrame then ClosePopup() end end
+				ddBtn.MouseButton1Click:Connect(function()
+					if currentPopup == listFrame then Dropdown:Close() else Dropdown:Open() end
 				end)
 				if cfg.Default ~= nil then
 					Dropdown:SetValue(cfg.Default)
@@ -4342,12 +3474,9 @@ function NovaUI:CreateWindow(config)
 				return Dropdown
 			end
 
-			--- Section:AddColorpicker(id, { Title, Description, Default, Transparency, Elevated, Callback })
-			--- Callback/Changed fire once, with the final Color3, when you click
-			--- off the popup to close it (not while dragging inside it).
 			function Section:AddColorpicker(id, cfg)
 				cfg = cfg or {}
-				local controlWidth = 34
+				local controlWidth = 112
 
 				local _, controlHolder = CreateRow(cfg, controlWidth)
 
@@ -4355,106 +3484,111 @@ function NovaUI:CreateWindow(config)
 					Text = "",
 					BackgroundColor3 = cfg.Default or Color3.fromRGB(255, 255, 255),
 					AutoButtonColor = false,
-					Size = UDim2.new(0, 30, 0, 20),
+					Size = UDim2.new(0, 28, 0, 28),
+					LayoutOrder = 2,
 					Parent = controlHolder,
 				})
-				Round(swatch, 5)
+				local hexLabel = New("TextLabel", {Text = "#" .. swatch.BackgroundColor3:ToHex():upper(), Font = Enum.Font.Code, TextSize = 12,
+					TextColor3 = theme.SubText, BackgroundTransparency = 1, Size = UDim2.fromOffset(72, 24), LayoutOrder = 1, Parent = controlHolder})
+				swatch:GetPropertyChangedSignal("BackgroundColor3"):Connect(function() hexLabel.Text = "#" .. swatch.BackgroundColor3:ToHex():upper() end)
+				Round(swatch, 7)
 				Stroke(swatch, theme.Border, 1)
 
-				-- Fixed-size, fully opaque popup rendered in Overlay so it's
-				-- always readable and never sits under other UI.
 				local popup = New("Frame", {
-					BackgroundColor3 = theme.PopupBackground,
+					Name = "ColorPickerPopup",
+					BackgroundColor3 = theme.SecondaryBackground,
 					BackgroundTransparency = 0,
 					Visible = false,
-					Size = UDim2.new(0, 200, 0, cfg.Transparency ~= nil and 210 or 180),
+					Size = UDim2.new(0, 288, 0, cfg.Transparency ~= nil and 356 or 306),
 					Parent = Overlay,
 				})
-				Round(popup, 8)
+				Round(popup, 12)
 				Stroke(popup, theme.Border, 1)
-				AddShadow(popup, { Transparency = 0.45, OffsetY = 6, Blur = 16 })
-				Pad(popup, 10)
-				New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8), Parent = popup })
+				AddShadow(popup, { Transparency = 0.3, OffsetY = 10, Blur = 24 })
+				Pad(popup, 16)
+				New("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 12), Parent = popup })
 
-				-- Live preview swatch inside the popup, so the current color
-				-- is always visible right next to the pickers themselves.
+				local header = New("Frame", {Name = "Header", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 28), LayoutOrder = 0, Parent = popup})
+				New("TextLabel", {Text = cfg.Title or "Color", Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = theme.Text,
+					TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, BackgroundTransparency = 1,
+					Size = UDim2.new(1, -38, 1, 0), Parent = header})
+				local closePicker = New("TextButton", {Name = "Close", Text = "✕", TextColor3 = theme.SubText, AutoButtonColor = false,
+					BackgroundColor3 = theme.ElementBackground, AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0),
+					Size = UDim2.fromOffset(28, 28), Parent = header})
+				Round(closePicker, 7)
 				local previewRow = New("Frame", {
 					BackgroundTransparency = 1,
-					Size = UDim2.new(1, 0, 0, 20),
-					LayoutOrder = 0,
+					Size = UDim2.new(1, 0, 0, 42),
+					LayoutOrder = 5,
 					Parent = popup,
 				})
 				local previewSwatch = New("Frame", {
 					BackgroundColor3 = cfg.Default or Color3.fromRGB(255, 255, 255),
-					Size = UDim2.new(0, 20, 0, 20),
+					Size = UDim2.new(0, 42, 0, 42),
 					Parent = previewRow,
 				})
-				Round(previewSwatch, 5)
+				Round(previewSwatch, 9)
 				Stroke(previewSwatch, theme.Border, 1)
 				local previewLabel = New("TextLabel", {
 					Text = "",
-					Font = Enum.Font.Gotham,
-					TextSize = 12,
+					Font = Enum.Font.Code,
+					TextSize = 11,
 					TextColor3 = theme.SubText,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					BackgroundTransparency = 1,
-					Position = UDim2.new(0, 28, 0, 0),
-					Size = UDim2.new(1, -28, 1, 0),
+					Position = UDim2.new(0, 54, 0, 29),
+					Size = UDim2.new(1, -54, 0, 13),
 					Parent = previewRow,
 				})
 
-				-- SV box is 3 stacked layers, NOT a gradient applied to the base
-				-- frame itself: a UIGradient's Color sequence completely
-				-- overrides whatever the frame's own BackgroundColor3 is
-				-- wherever the gradient is opaque, so putting a white gradient
-				-- directly on svBox would hide the hue color underneath it
-				-- (that mismatch between the logical s/v mapping and what
-				-- actually rendered was the "left=hue, right=black" bug).
-				-- Base: solid, full-saturation/value hue — always visible
-				-- wherever both overlays above are transparent.
+				local hexInput = New("TextBox", {Name = "HexInput", Text = "", Font = Enum.Font.Code, TextSize = 13,
+					TextColor3 = theme.Text, BackgroundColor3 = theme.ElementBackground, ClearTextOnFocus = false,
+					TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(54, 0), Size = UDim2.new(1, -54, 0, 26), Parent = previewRow})
+				Round(hexInput, 6) Pad(hexInput, 10, 0, 10, 0)
+				local hexStroke = Stroke(hexInput, theme.Border, 1)
+				hexInput.Focused:Connect(function() Tween(hexStroke, {Color = theme.Accent}, 0.12) end)
 				local svBox = New("Frame", {
 					BackgroundColor3 = Color3.fromRGB(255, 0, 0),
-					Size = UDim2.new(1, 0, 0, 100),
+					Name = "SaturationValue",
+					Size = UDim2.new(1, 0, 0, 156),
 					LayoutOrder = 1,
 					Parent = popup,
 				})
-				Round(svBox, 4)
-				-- White overlay: opaque white at the left edge (s=0), fading to
-				-- fully transparent at the right edge (s=1) where the hue below
-				-- shows through unobstructed.
+				Round(svBox, 8)
 				local whiteOverlay = New("Frame", {
 					BackgroundColor3 = Color3.new(1, 1, 1),
 					BackgroundTransparency = 0,
 					Size = UDim2.new(1, 0, 1, 0),
 					Parent = svBox,
 				})
+				Round(whiteOverlay, 8)
 				New("UIGradient", { Transparency = NumberSequence.new(0, 1), Parent = whiteOverlay })
-				-- Black overlay: fully transparent at the top edge (v=1, bright)
-				-- fading to opaque black at the bottom edge (v=0, dark).
 				local blackOverlay = New("Frame", {
 					BackgroundColor3 = Color3.new(0, 0, 0),
 					BackgroundTransparency = 0,
 					Size = UDim2.new(1, 0, 1, 0),
 					Parent = svBox,
 				})
+				Round(blackOverlay, 8)
 				New("UIGradient", { Transparency = NumberSequence.new(1, 0), Rotation = 90, Parent = blackOverlay })
 
 				local svCursor = New("Frame", {
-					BackgroundColor3 = Color3.new(1, 1, 1),
+					BackgroundTransparency = 1,
 					AnchorPoint = Vector2.new(0.5, 0.5),
-					Size = UDim2.new(0, 10, 0, 10),
+					Size = UDim2.new(0, 12, 0, 12),
 					ZIndex = 2,
 					Parent = svBox,
 				})
 				Pill(svCursor)
-				Stroke(svCursor, Color3.new(0, 0, 0), 2)
+				Stroke(svCursor, Color3.new(1, 1, 1), 2)
 
 				local hueBar = New("Frame", {
-					Size = UDim2.new(1, 0, 0, 14),
+					Name = "Hue", BackgroundColor3 = Color3.new(1, 1, 1),
+					Size = UDim2.new(1, 0, 0, 12),
 					LayoutOrder = 2,
 					Parent = popup,
 				})
-				Round(hueBar, 4)
+				Pill(hueBar)
 				New("UIGradient", {
 					Color = ColorSequence.new({
 						ColorSequenceKeypoint.new(0.00, Color3.fromHSV(0, 1, 1)),
@@ -4471,30 +3605,41 @@ function NovaUI:CreateWindow(config)
 					BackgroundColor3 = Color3.new(1, 1, 1),
 					AnchorPoint = Vector2.new(0.5, 0.5),
 					Position = UDim2.new(0, 0, 0.5, 0),
-					Size = UDim2.new(0, 4, 1, 4),
+					Size = UDim2.fromOffset(16, 16),
 					ZIndex = 2,
 					Parent = hueBar,
 				})
-				Stroke(hueCursor, Color3.new(0, 0, 0), 1)
+				Pill(hueCursor)
+				Stroke(hueCursor, theme.Background, 2)
 
-				local alphaBar, alphaCursor
+				local alphaBar, alphaCursor, alphaTint, opacityLabel
 				if cfg.Transparency ~= nil then
+					local opacityRow = New("Frame", {BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 3, Parent = popup})
+					New("TextLabel", {Text = "Opacity", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = theme.SubText,
+						TextXAlignment = Enum.TextXAlignment.Left, BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = opacityRow})
+					opacityLabel = New("TextLabel", {Text = "", Font = Enum.Font.Code, TextSize = 12, TextColor3 = theme.Accent,
+						TextXAlignment = Enum.TextXAlignment.Right, BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = opacityRow})
 					alphaBar = New("Frame", {
 						BackgroundColor3 = theme.ElementBackground,
-						Size = UDim2.new(1, 0, 0, 14),
-						LayoutOrder = 3,
+						Size = UDim2.new(1, 0, 0, 12),
+						LayoutOrder = 4,
 						Parent = popup,
 					})
-					Round(alphaBar, 4)
+					Pill(alphaBar)
+					alphaBar.ClipsDescendants = false
+					alphaTint = New("Frame", {BackgroundColor3 = cfg.Default or Color3.new(1, 1, 1), Size = UDim2.fromScale(1, 1), Parent = alphaBar})
+					Pill(alphaTint)
+					New("UIGradient", {Transparency = NumberSequence.new(1, 0), Parent = alphaTint})
 					alphaCursor = New("Frame", {
 						BackgroundColor3 = Color3.new(1, 1, 1),
 						AnchorPoint = Vector2.new(0.5, 0.5),
 						Position = UDim2.new(0, 0, 0.5, 0),
-						Size = UDim2.new(0, 4, 1, 4),
+						Size = UDim2.fromOffset(16, 16),
 						ZIndex = 2,
 						Parent = alphaBar,
 					})
-					Stroke(alphaCursor, Color3.new(0, 0, 0), 1)
+					Pill(alphaCursor)
+					Stroke(alphaCursor, theme.Background, 2)
 				end
 
 				local Colorpicker = {
@@ -4510,10 +3655,12 @@ function NovaUI:CreateWindow(config)
 					hueCursor.Position = UDim2.new(h, 0, 0.5, 0)
 					swatch.BackgroundColor3 = Colorpicker.Value
 					previewSwatch.BackgroundColor3 = Colorpicker.Value
-					previewLabel.Text = string.format("%d, %d, %d", math.round(Colorpicker.Value.R * 255), math.round(Colorpicker.Value.G * 255), math.round(Colorpicker.Value.B * 255))
+					if not hexInput:IsFocused() then hexInput.Text = "#" .. Colorpicker.Value:ToHex():upper() end
+					previewLabel.Text = string.format("RGB  %d, %d, %d", math.round(Colorpicker.Value.R * 255), math.round(Colorpicker.Value.G * 255), math.round(Colorpicker.Value.B * 255))
 					if alphaCursor then
 						alphaCursor.Position = UDim2.new(1 - Colorpicker.Transparency, 0, 0.5, 0)
-						alphaBar.BackgroundColor3 = Colorpicker.Value
+						alphaTint.BackgroundColor3 = Colorpicker.Value
+						opacityLabel.Text = tostring(math.round((1 - Colorpicker.Transparency) * 100)) .. "%"
 					end
 				end
 				Render()
@@ -4523,12 +3670,21 @@ function NovaUI:CreateWindow(config)
 					Colorpicker.Value = color
 					h, s, v = Color3.toHSV(color)
 					Render()
-					Colorpicker.Changed:Fire()
+					Colorpicker.Changed:Fire(Colorpicker.Value)
 				end
 
-				-- Live preview only — does NOT fire Changed/Callback. The value
-				-- only "finalizes" (fires) when the popup is closed, so you can
-				-- drag around freely and only the final color gets committed.
+				hexInput.FocusLost:Connect(function()
+					local hex = hexInput.Text:gsub("#", ""):gsub("%s", "")
+					if #hex == 3 and hex:match("^%x+$") then hex = hex:gsub("(.)", "%1%1") end
+					if #hex == 6 and hex:match("^%x+$") then
+						Colorpicker:SetValueRGB(Color3.fromHex(hex))
+						if cfg.Callback then cfg.Callback(Colorpicker.Value) end
+						Tween(hexStroke, {Color = theme.Border}, 0.12)
+					else
+						Tween(hexStroke, {Color = Color3.fromRGB(235, 119, 119)}, 0.12)
+					end
+					hexInput.Text = "#" .. Colorpicker.Value:ToHex():upper()
+				end)
 				local function Commit()
 					Colorpicker.Value = Color3.fromHSV(h, s, v)
 					Render()
@@ -4579,48 +3735,27 @@ function NovaUI:CreateWindow(config)
 					end
 				end))
 
-				swatch.MouseButton1Click:Connect(function()
-					-- Re-sync h/s/v from the *current* Value every time the
-					-- popup opens (in case SetValueRGB changed it while
-					-- closed) so the cursors always match the real color.
+				function Colorpicker:Open()
+					if currentPopup == popup then return end
 					h, s, v = Color3.toHSV(Colorpicker.Value)
 					Render()
 					OpenPopup(popup, swatch, {
 						Align = "right",
 						OnClose = function()
-							-- The color only finalizes when you click off the
-							-- popup — this is where Changed/Callback actually fire.
 							Colorpicker.Changed:Fire(Colorpicker.Value)
 							if cfg.Callback then cfg.Callback(Colorpicker.Value) end
 						end,
 					})
+				end
+				function Colorpicker:Close() if currentPopup == popup then ClosePopup() end end
+				closePicker.MouseButton1Click:Connect(function() Colorpicker:Close() end)
+				swatch.MouseButton1Click:Connect(function()
+					if currentPopup == popup then Colorpicker:Close() else Colorpicker:Open() end
 				end)
-
 				RegisterOption(id, Colorpicker)
 				return Colorpicker
 			end
 
-			-- KeybindDisplayName/KeybindMatches are defined module-level (shared
-			-- with Window.MinimizeKey/ToggleKey below) — see near DeserializeValue.
-
-			--- Section:AddKeybind(id, { Title, Description, Mode, Default, Elevated, Callback, ChangedCallback })
-			--- Two separate signals, easy to mix up since they're both
-			--- "changed": Keybind:OnChanged(fn) fires with the live true/false
-			--- pressed state (Toggle flip, Hold press/release, Always press) —
-			--- same value `Callback` gets. Keybind:OnKeybindChanged(fn) fires
-			--- with the new bound value only when the BOUND KEY itself is
-			--- changed — clicking the button and pressing a new key/mouse
-			--- button, or calling :SetValue(value) in code — same value
-			--- `ChangedCallback` gets. `ChangedCallback` also fires once at
-			--- creation with `Default`, so it sees the binding the keybind
-			--- loaded with and not just later rebinds. (Only the callback: an
-			--- :OnKeybindChanged handler can't be connected until after this
-			--- returns.)
-			--- `Default`/`Value`/the value passed to :SetValue() and to
-			--- ChangedCallback are real Enum items, not strings: an
-			--- Enum.KeyCode item for keyboard keys (e.g. Enum.KeyCode.F), or
-			--- an Enum.UserInputType item for mouse buttons (e.g.
-			--- Enum.UserInputType.MouseButton1/2/3).
 			function Section:AddKeybind(id, cfg)
 				cfg = cfg or {}
 				local controlWidth = 90
@@ -4657,13 +3792,6 @@ function NovaUI:CreateWindow(config)
 					_listening = false,
 				}
 
-				-- Fire once at creation with the starting binding, the same way
-				-- Toggle/Dropdown announce their defaults. Without this, anything
-				-- mirroring the bind (a HUD label, the consumer's own input
-				-- handler) only ever hears about rebinds and never learns what
-				-- the keybind loaded as. Fires with nil for an unbound keybind —
-				-- that IS its starting value, and KeybindDisplayName renders it
-				-- as "None".
 				Keybind.KeybindChanged:Fire(Keybind.Value)
 				if cfg.ChangedCallback then cfg.ChangedCallback(Keybind.Value) end
 
@@ -4679,9 +3807,6 @@ function NovaUI:CreateWindow(config)
 					if cfg.ChangedCallback then cfg.ChangedCallback(key) end
 				end
 
-				-- Pulses the accent stroke while waiting for a keypress, so
-				-- "listening" mode reads as clearly active/alive, not just a
-				-- static "..." label.
 				local listenPulseTween
 				local function StopListenPulse()
 					if listenPulseTween then
@@ -4763,7 +3888,6 @@ function NovaUI:CreateWindow(config)
 				return Keybind
 			end
 
-			--- Section:AddInput(id, { Title, Description, Default, Placeholder, Numeric, Finished, Elevated, Callback })
 			function Section:AddInput(id, cfg)
 				cfg = cfg or {}
 				local controlWidth = 120
@@ -4777,9 +3901,6 @@ function NovaUI:CreateWindow(config)
 				})
 				Round(box, 6)
 				Pad(box, 8, 0, 8, 0)
-				-- Starts invisible; brightens into an accent-colored focus
-				-- ring and fades back out, so typing/clicking the field gives
-				-- the same kind of feedback every other control has.
 				local boxFocusRing = Stroke(box, theme.Accent, 1.5, 1)
 
 				local textbox = New("TextBox", {
@@ -4850,7 +3971,6 @@ function NovaUI:CreateWindow(config)
 				return Input
 			end
 
-			--- Section:AddButton({ Title, Description, ButtonText, Elevated, Callback })
 			function Section:AddButton(cfg)
 				cfg = cfg or {}
 				local controlWidth = 74
@@ -4875,10 +3995,6 @@ function NovaUI:CreateWindow(config)
 				return { Instance = btn }
 			end
 
-			--- Section:AddParagraph({ Title, Content }) -> { Instance, SetTitle(text), SetContent(text) }
-			-- SetTitle only has something to update if the paragraph was
-			-- created with a Title to begin with — a paragraph created
-			-- without one has no title TextLabel to reveal later.
 			function Section:AddParagraph(cfg)
 				cfg = cfg or {}
 				Section._rowCount = Section._rowCount + 1
@@ -4940,3 +4056,4 @@ function NovaUI:CreateWindow(config)
 end
 
 return NovaUI
+
