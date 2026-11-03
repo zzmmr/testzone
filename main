@@ -125,6 +125,12 @@ end
 
 local function New(className, props, children)
 	local inst = Instance.new(className)
+	-- New GuiObjects come with a 1px border in (27, 42, 53); on any opaque,
+	-- square-cornered frame (the tab bar) it shows as a bluish line. Off by
+	-- default; a props table can still turn it back on.
+	if inst:IsA("GuiObject") then
+		inst.BorderSizePixel = 0
+	end
 	for prop, value in pairs(props or {}) do
 		if prop ~= "Parent" then
 			inst[prop] = value
@@ -920,6 +926,10 @@ end
 function Ren:CreateWindow(config)
 	config = config or {}
 	Ren.Unloaded = false
+	-- Migration: NovaUI scripts pass SubTitle = "My Config" as the starting
+	-- label of its config selector; as a Ren subtitle it's noise, so drop it.
+	local subTitle = config.SubTitle
+	if subTitle == "My Config" then subTitle = nil end
 	if config.Theme and Themes[config.Theme] then
 		Ren.Theme = DeriveTheme(Themes[config.Theme], config.Accent)
 	elseif config.Accent then
@@ -1386,9 +1396,9 @@ function Ren:CreateWindow(config)
 			LayoutOrder = 2,
 			Parent = Brand,
 		})
-		if config.SubTitle then
+		if subTitle then
 			Label({
-				Text = config.SubTitle,
+				Text = subTitle,
 				TextSize = 11,
 				TextColor3 = theme.DimText,
 				AutomaticSize = Enum.AutomaticSize.X,
@@ -1812,8 +1822,15 @@ function Ren:CreateWindow(config)
 	--- Window:AddSidebarButton({ Icon, Tooltip, Callback, Order }) — NovaUI
 	--- name kept; Ren has no sidebar, so these land in the header next to
 	--- the window controls. Window:AddHeaderButton is the same function.
+	--- Migration: a "chevron-down" button is NovaUI's collapse button, which
+	--- Ren's header minimize already covers, so it's skipped. The caller
+	--- still gets a working (unparented) handle back, so code that wires up
+	--- the returned button doesn't error.
 	function Window:AddSidebarButton(cfg)
 		cfg = cfg or {}
+		if cfg.Icon == "chevron-down" then
+			return { Instance = New("TextButton", { Text = "" }), SetIcon = function() end }
+		end
 		local handle = IconButton(ExtraButtons, cfg.Icon or "star", 28, 15)
 		handle.Instance.LayoutOrder = cfg.Order or #ExtraButtons:GetChildren()
 		if cfg.Tooltip then AttachTooltip(handle.Instance, cfg.Tooltip) end
@@ -4327,7 +4344,7 @@ function Ren:CreateWindow(config)
 
 		local about = settings:AddSection({ Title = "About", Column = 2 })
 		about:AddParagraph({
-			Title = (config.Title or "Ren") .. (config.SubTitle and ("  ·  " .. config.SubTitle) or ""),
+			Title = (config.Title or "Ren") .. (subTitle and ("  ·  " .. subTitle) or ""),
 			Content = (LocalPlayer and ("Signed in as " .. LocalPlayer.DisplayName .. " (@" .. LocalPlayer.Name .. ")\n") or "")
 				.. "Built on Ren " .. Ren.Version .. ".",
 		})
