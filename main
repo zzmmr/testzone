@@ -943,7 +943,9 @@ function Ren:CreateWindow(config)
 		Ren:SetReducedEffects(config.ReducedEffects)
 	end
 
-	local size = config.Size or UDim2.fromOffset(720, 480)
+	-- Fixed starting size: config.Size is deliberately ignored (NovaUI scripts
+	-- pass sizes tuned for its sidebar layout). The corner grip still resizes.
+	local size = UDim2.fromOffset(600, 380)
 	local HEADER_HEIGHT = 50
 	local TABBAR_HEIGHT = 40
 	local CORNER = 10
@@ -1413,7 +1415,9 @@ function Ren:CreateWindow(config)
 
 	local SearchPill = New("Frame", {
 		BackgroundColor3 = theme.ElementBackground,
-		Size = UDim2.fromOffset(config.SearchWidth or 180, 30),
+		-- 150 leaves the 600px header room for a long config name in the
+		-- chip; at 180 the chrome buttons could be pushed off the edge.
+		Size = UDim2.fromOffset(config.SearchWidth or 150, 30),
 		LayoutOrder = 3,
 		Parent = HeaderRow,
 	})
@@ -1480,7 +1484,7 @@ function Ren:CreateWindow(config)
 		LayoutOrder = 1,
 		Parent = ConfigChip,
 	})
-	New("UISizeConstraint", { MaxSize = Vector2.new(120, math.huge), Parent = ChipLabel })
+	New("UISizeConstraint", { MaxSize = Vector2.new(90, math.huge), Parent = ChipLabel })
 	local chipIcon = Icon("folder", 15, theme.SubText, { LayoutOrder = 2, Parent = ConfigChip })
 	ConfigChip.MouseEnter:Connect(function()
 		Tween(ConfigChip, { BackgroundTransparency = 0 }, 0.1)
